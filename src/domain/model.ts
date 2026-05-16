@@ -88,13 +88,23 @@ export function createDefaultProject(): Project {
 
 function assertValidBlock(block: SceneBlock): void {
   if (block.type === "character") {
-    if (block.character.trim().length === 0) {
-      throw new Error("Character block must contain character.");
+    if (typeof block.character !== "string") {
+      throw new Error("Character block character must be string.");
     }
   }
-
   if (block.type === "narrative" && typeof block.text !== "string") {
     throw new Error("Narrative block text must be string.");
+  }
+  if (block.type === "dialogue") {
+    if (typeof block.character !== "string" || typeof block.text !== "string") {
+      throw new Error("Dialogue block fields must be string.");
+    }
+  }
+}
+
+function assertBlockReadyForExport(block: SceneBlock): void {
+  if (block.type === "character" && block.character.trim().length === 0) {
+    throw new Error("Character block must contain character.");
   }
   if (block.type === "dialogue") {
     if (block.character.trim().length === 0 || block.text.trim().length === 0) {
@@ -131,6 +141,17 @@ export function assertProjectInvariant(project: Project): void {
           throw new Error("Scene block type must be character, narrative or dialogue.");
         }
         assertValidBlock(block);
+      }
+    }
+  }
+}
+
+export function assertProjectReadyForExport(project: Project): void {
+  assertProjectInvariant(project);
+  for (const script of project.scripts) {
+    for (const scene of script.scenes) {
+      for (const block of scene.blocks) {
+        assertBlockReadyForExport(block);
       }
     }
   }

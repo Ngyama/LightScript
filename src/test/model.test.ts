@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { assertProjectInvariant, createDefaultProject } from "../domain/model";
+import {
+  assertProjectInvariant,
+  assertProjectReadyForExport,
+  createDefaultProject,
+} from "../domain/model";
 
 describe("project invariant", () => {
   test("accepts default project", () => {
@@ -13,15 +17,38 @@ describe("project invariant", () => {
     expect(() => assertProjectInvariant(project)).toThrow("Project must contain at least one script.");
   });
 
-  test("rejects invalid dialogue block", () => {
+  test("allows empty character/dialogue blocks during editing", () => {
+    const project = createDefaultProject();
+    const firstScene = project.scripts[0].scenes[0];
+    firstScene.blocks.push(
+      { id: "draft-character", type: "character", character: "" },
+      { id: "draft-dialogue", type: "dialogue", character: "", text: "" },
+    );
+    expect(() => assertProjectInvariant(project)).not.toThrow();
+  });
+});
+
+describe("project export readiness", () => {
+  test("rejects empty character block when exporting", () => {
+    const project = createDefaultProject();
+    const firstScene = project.scripts[0].scenes[0];
+    firstScene.blocks.push({ id: "blank-character", type: "character", character: "" });
+    expect(() => assertProjectReadyForExport(project)).toThrow(
+      "Character block must contain character.",
+    );
+  });
+
+  test("rejects empty dialogue block when exporting", () => {
     const project = createDefaultProject();
     const firstScene = project.scripts[0].scenes[0];
     firstScene.blocks.push({
-      id: "invalid-dialogue",
+      id: "blank-dialogue",
       type: "dialogue",
       character: "",
       text: "hello",
     });
-    expect(() => assertProjectInvariant(project)).toThrow("Dialogue block must contain character and text.");
+    expect(() => assertProjectReadyForExport(project)).toThrow(
+      "Dialogue block must contain character and text.",
+    );
   });
 });

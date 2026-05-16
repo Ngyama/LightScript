@@ -21,7 +21,8 @@
         "maxHeight": 800,
         "resizable": false,
         "maximizable": false,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {
