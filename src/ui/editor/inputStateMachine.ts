@@ -1,17 +1,10 @@
-import type { SceneBlock } from "../../domain/model";
-
-export interface EditorState {
-  mode: "character" | "dialogue" | "narrative";
-  currentCharacter?: string;
-}
-
-export type InsertBlockType = "character" | "dialogue" | "narrative";
+import type { DialogueBlock, NarrativeBlock, SceneBlock } from "../../domain/model";
 
 const randomId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-export function createNarrativeBlock(text = ""): SceneBlock {
+export function createNarrativeBlock(text = ""): NarrativeBlock {
   return {
     id: randomId(),
     type: "narrative",
@@ -19,108 +12,13 @@ export function createNarrativeBlock(text = ""): SceneBlock {
   };
 }
 
-export function createCharacterBlock(character = ""): SceneBlock {
-  return {
-    id: randomId(),
-    type: "character",
-    character,
-  };
-}
-
-export function createDialogueBlock(character = "", text = ""): SceneBlock {
+export function createDialogueBlock(character?: string, text = ""): DialogueBlock {
   return {
     id: randomId(),
     type: "dialogue",
-    character,
+    character: character?.trim() ? character : undefined,
     text,
   };
-}
-
-export function createBlockByType(type: InsertBlockType, characterHint?: string): SceneBlock {
-  if (type === "character") {
-    return createCharacterBlock(characterHint ?? "");
-  }
-  if (type === "dialogue") {
-    return createDialogueBlock(characterHint ?? "", "");
-  }
-  return createNarrativeBlock();
-}
-
-export function blockToInputValue(block: SceneBlock): string {
-  if (block.type === "character") {
-    return block.character;
-  }
-  if (block.type === "dialogue") {
-    return block.text;
-  }
-  return block.text;
-}
-
-export function updateBlockFromInput(block: SceneBlock, rawInput: string): { block: SceneBlock; state: EditorState } {
-  const normalizedInput = rawInput.replace(/\r/g, "");
-  if (block.type === "character") {
-    const character = normalizedInput.trim();
-    return {
-      block: {
-        ...block,
-        character,
-      },
-      state: {
-        mode: "character",
-        currentCharacter: character || undefined,
-      },
-    };
-  }
-
-  if (block.type === "dialogue") {
-    return {
-      block: {
-        ...block,
-        text: normalizedInput,
-      },
-      state: {
-        mode: "dialogue",
-        currentCharacter: block.character,
-      },
-    };
-  }
-
-  return {
-    block: {
-      text: normalizedInput,
-      id: block.id,
-      type: "narrative",
-    },
-    state: {
-      mode: "narrative",
-    },
-  };
-}
-
-export function stateAfterEnter(lastBlock: SceneBlock | undefined): EditorState {
-  if (lastBlock?.type === "dialogue") {
-    return {
-      mode: "character",
-      currentCharacter: lastBlock.character,
-    };
-  }
-  if (lastBlock?.type === "character") {
-    return {
-      mode: "dialogue",
-      currentCharacter: lastBlock.character,
-    };
-  }
-  return { mode: "narrative" };
-}
-
-export function autoNextType(currentType: InsertBlockType): InsertBlockType {
-  if (currentType === "character") {
-    return "dialogue";
-  }
-  if (currentType === "dialogue") {
-    return "character";
-  }
-  return "narrative";
 }
 
 function uniquePush(list: string[], value: string): void {
@@ -139,10 +37,7 @@ export function collectSceneCharacters(blocks: SceneBlock[], seedCharacters: str
   }
 
   for (const block of blocks) {
-    if (block.type === "character") {
-      uniquePush(characters, block.character.trim());
-    }
-    if (block.type === "dialogue") {
+    if (block.type === "dialogue" && block.character) {
       uniquePush(characters, block.character.trim());
     }
   }
@@ -155,8 +50,8 @@ export function predictNextCharacter(
   globalCharacters: string[],
 ): string[] {
   const dialogueSpeakers = blocks
-    .filter((block): block is Extract<SceneBlock, { type: "dialogue" }> => block.type === "dialogue")
-    .map((block) => block.character.trim())
+    .filter((block): block is DialogueBlock => block.type === "dialogue")
+    .map((block) => (block.character ?? "").trim())
     .filter((name) => name.length > 0);
 
   const candidates: string[] = [];

@@ -1,4 +1,15 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditorStore } from "../../state/editorStore";
+
+type ContextMenuState =
+  | { kind: "script"; scriptId: string; x: number; y: number }
+  | { kind: "scene"; scriptId: string; sceneId: string; x: number; y: number }
+  | null;
+
+type EditingState =
+  | { kind: "script"; id: string }
+  | { kind: "scene"; id: string }
+  | null;
 
 export function StructureTree() {
   const project = useEditorStore((state) => state.project);
@@ -10,6 +21,126 @@ export function StructureTree() {
   const deleteScene = useEditorStore((state) => state.deleteScene);
   const renameScript = useEditorStore((state) => state.renameScript);
   const renameScene = useEditorStore((state) => state.renameScene);
+
+  const [menu, setMenu] = useState<ContextMenuState>(null);
+  const [editing, setEditing] = useState<EditingState>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const closeMenu = () => setMenu(null);
+
+  useEffect(() => {
+    if (!menu) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMenu();
+      }
+    };
+    const onScroll = () => closeMenu();
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [menu]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const menuTarget = useMemo(() => {
+    if (!menu) {
+      return null;
+    }
+    const script = project.scripts.find((entry) => entry.id === menu.scriptId);
+    if (!script) {
+      return null;
+    }
+    if (menu.kind === "script") {
+      return { kind: "script" as const, script };
+    }
+    const scene = script.scenes.find((entry) => entry.id === menu.sceneId);
+    if (!scene) {
+      return null;
+    }
+    return { kind: "scene" as const, script, scene };
+  }, [menu, project]);
+
+  const openScriptMenu = (event: React.MouseEvent, scriptId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ kind: "script", scriptId, x: event.clientX, y: event.clientY });
+  };
+
+  const openSceneMenu = (event: React.MouseEvent, scriptId: string, sceneId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ kind: "scene", scriptId, sceneId, x: event.clientX, y: event.clientY });
+  };
+
+  const startEditScript = (scriptId: string, currentTitle: string) => {
+    closeMenu();
+    setDraftTitle(currentTitle);
+    setEditing({ kind: "script", id: scriptId });
+  };
+
+  const startEditScene = (sceneId: string, currentTitle: string) => {
+    closeMenu();
+    setDraftTitle(currentTitle);
+    setEditing({ kind: "scene", id: sceneId });
+  };
+
+  const commitEdit = () => {
+    if (!editing) {
+      return;
+    }
+    const next = draftTitle.trim();
+    if (next) {
+      if (editing.kind === "script") {
+        renameScript(editing.id, next);
+      } else {
+        renameScene(editing.id, next);
+      }
+    }
+    setEditing(null);
+    setDraftTitle("");
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setDraftTitle("");
+  };
+
+  const onEditKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitEdit();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      cancelEdit();
+    }
+  };
+
+  const handleAddScene = (scriptId: string) => {
+    closeMenu();
+    addScene(scriptId);
+  };
+
+  const handleDeleteScene = (scriptId: string, sceneId: string) => {
+    closeMenu();
+    const deleted = deleteScene(scriptId, sceneId);
+    if (!deleted) {
+      window.alert("At least one scene must remain in each script.");
+    }
+  };
 
   return (
     <div className="tree">
@@ -33,81 +164,128 @@ export function StructureTree() {
             Project
           </button>
           <ul>
-            {project.scripts.map((script) => (
-              <li key={script.id}>
-                <div className="tree-row">
-                  <button
-                    type="button"
-                    className={`tree-node ${selection.scriptId === script.id && !selection.sceneId ? "is-active" : ""}`}
-                    onClick={() => selectScript(script.id)}
-                  >
-                    {script.title}
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      const nextTitle = window.prompt("Rename Script", script.title)?.trim();
-                      if (nextTitle) {
-                        renameScript(script.id, nextTitle);
-                      }
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button type="button" className="ghost" onClick={() => addScene(script.id)}>
-                    + Scene
-                  </button>
-                </div>
-                <ul>
-                  {script.scenes.map((scene) => (
-                    <li key={scene.id}>
-                      <div className="tree-row">
-                        <button
-                          type="button"
-                          className={`tree-node tree-scene ${
-                            selection.scriptId === script.id && selection.sceneId === scene.id ? "is-active" : ""
-                          }`}
-                          onClick={() => selectScene(script.id, scene.id)}
-                        >
-                          {scene.title}
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => {
-                            const nextTitle = window.prompt("Rename Scene", scene.title)?.trim();
-                            if (nextTitle) {
-                              renameScene(scene.id, nextTitle);
-                            }
-                          }}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => {
-                            if (!window.confirm(`Delete scene "${scene.title}"?`)) {
-                              return;
-                            }
-                            const deleted = deleteScene(script.id, scene.id);
-                            if (!deleted) {
-                              window.alert("At least one scene must remain in each script.");
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
+            {project.scripts.map((script) => {
+              const isEditingScript = editing?.kind === "script" && editing.id === script.id;
+              return (
+                <li key={script.id}>
+                  <div className="tree-row">
+                    {isEditingScript ? (
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        className="tree-node-input"
+                        value={draftTitle}
+                        onChange={(event) => setDraftTitle(event.target.value)}
+                        onKeyDown={onEditKeyDown}
+                        onBlur={commitEdit}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className={`tree-node ${selection.scriptId === script.id && !selection.sceneId ? "is-active" : ""}`}
+                        onClick={() => selectScript(script.id)}
+                        onContextMenu={(event) => openScriptMenu(event, script.id)}
+                      >
+                        {script.title}
+                      </button>
+                    )}
+                  </div>
+                  <ul>
+                    {script.scenes.map((scene) => {
+                      const isEditingScene = editing?.kind === "scene" && editing.id === scene.id;
+                      return (
+                        <li key={scene.id}>
+                          <div className="tree-row">
+                            {isEditingScene ? (
+                              <input
+                                ref={inputRef}
+                                type="text"
+                                className="tree-node-input tree-scene"
+                                value={draftTitle}
+                                onChange={(event) => setDraftTitle(event.target.value)}
+                                onKeyDown={onEditKeyDown}
+                                onBlur={commitEdit}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                className={`tree-node tree-scene ${
+                                  selection.scriptId === script.id && selection.sceneId === scene.id
+                                    ? "is-active"
+                                    : ""
+                                }`}
+                                onClick={() => selectScene(script.id, scene.id)}
+                                onContextMenu={(event) => openSceneMenu(event, script.id, scene.id)}
+                              >
+                                {scene.title}
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              );
+            })}
           </ul>
         </li>
       </ul>
+      {menu && menuTarget && (
+        <>
+          <div
+            className="tree-context-overlay"
+            onMouseDown={closeMenu}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              closeMenu();
+            }}
+          />
+          <ul
+            className="tree-context-menu"
+            style={{ left: menu.x, top: menu.y }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            {menuTarget.kind === "script" ? (
+              <>
+                <li>
+                  <button type="button" onClick={() => handleAddScene(menuTarget.script.id)}>
+                    New scene
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => startEditScript(menuTarget.script.id, menuTarget.script.title)}
+                  >
+                    Rename
+                  </button>
+                </li>
+              </>
+            ) : (
+              <>
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => startEditScene(menuTarget.scene.id, menuTarget.scene.title)}
+                  >
+                    Rename
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="is-danger"
+                    onClick={() => handleDeleteScene(menuTarget.script.id, menuTarget.scene.id)}
+                  >
+                    Delete
+                  </button>
+                </li>
+              </>
+            )}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

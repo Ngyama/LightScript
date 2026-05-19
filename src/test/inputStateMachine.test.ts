@@ -1,40 +1,28 @@
 import { describe, expect, test } from "vitest";
 import {
   collectSceneCharacters,
-  createCharacterBlock,
   createDialogueBlock,
   createNarrativeBlock,
   predictNextCharacter,
-  stateAfterEnter,
-  updateBlockFromInput,
 } from "../ui/editor/inputStateMachine";
 
 describe("input state machine", () => {
-  test("updates dialogue block as spoken text", () => {
-    const result = updateBlockFromInput(createDialogueBlock("男主", ""), "你好");
-    expect(result.block).toMatchObject({
-      type: "dialogue",
-      character: "男主",
-      text: "你好",
-    });
-    expect(result.state.mode).toBe("dialogue");
+  test("creates narrative block with given text", () => {
+    const block = createNarrativeBlock("他走进教室");
+    expect(block).toMatchObject({ type: "narrative", text: "他走进教室" });
   });
 
-  test("updates narrative block as plain text", () => {
-    const result = updateBlockFromInput(createNarrativeBlock(""), "他走进教室");
-    expect(result.block).toMatchObject({
-      type: "narrative",
-      text: "他走进教室",
-    });
-  });
+  test("creates dialogue block with optional character", () => {
+    const withSpeaker = createDialogueBlock("男主", "你好");
+    expect(withSpeaker).toMatchObject({ type: "dialogue", character: "男主", text: "你好" });
 
-  test("enter after dialogue returns character mode", () => {
-    const dialogue = createDialogueBlock("女主", "你来了");
-    expect(stateAfterEnter(dialogue).mode).toBe("character");
-  });
+    const withoutSpeaker = createDialogueBlock(undefined, "嗯");
+    expect(withoutSpeaker.type).toBe("dialogue");
+    expect(withoutSpeaker.character).toBeUndefined();
+    expect(withoutSpeaker.text).toBe("嗯");
 
-  test("enter after character returns dialogue mode", () => {
-    expect(stateAfterEnter(createCharacterBlock("男主")).mode).toBe("dialogue");
+    const blank = createDialogueBlock("   ", "");
+    expect(blank.character).toBeUndefined();
   });
 
   test("predicts opposing speaker first", () => {
@@ -50,15 +38,15 @@ describe("input state machine", () => {
     expect(suggestions[0]).toBe("女主");
   });
 
-  test("collects character list from blocks", () => {
+  test("collects character list from dialogue blocks", () => {
     const result = collectSceneCharacters(
-      [createCharacterBlock("男主"), createDialogueBlock("女主", "你好")],
+      [
+        createDialogueBlock("男主", "你好"),
+        createDialogueBlock("女主", "你也好"),
+        createDialogueBlock(undefined, "..."),
+      ],
       ["老师"],
     );
     expect(result).toEqual(["老师", "男主", "女主"]);
-  });
-
-  test("enter after narrative keeps narrative mode", () => {
-    expect(stateAfterEnter(createNarrativeBlock("他停下脚步")).mode).toBe("narrative");
   });
 });

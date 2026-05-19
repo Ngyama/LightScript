@@ -34,6 +34,7 @@ type EditorState = {
   renameScript: (scriptId: string, title: string) => void;
   renameScene: (sceneId: string, title: string) => void;
   setSceneBlocks: (sceneId: string, blocks: SceneBlock[], sceneCharacters?: string[]) => void;
+  setSceneCharacters: (sceneId: string, characters: string[]) => void;
 };
 
 function findScene(project: Project, sceneId?: string): Scene | undefined {
@@ -233,6 +234,18 @@ export const useEditorStore = create<EditorState>((set) => ({
                   characters: sceneCharacters ?? scene.characters,
                 }
               : scene,
+          ),
+        })),
+      }),
+    })),
+  setSceneCharacters: (sceneId, characters) =>
+    set((state) => ({
+      project: withInvariant({
+        ...state.project,
+        scripts: state.project.scripts.map((script) => ({
+          ...script,
+          scenes: script.scenes.map((scene) =>
+            scene.id === sceneId ? { ...scene, characters } : scene,
           ),
         })),
       }),

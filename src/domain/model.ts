@@ -1,10 +1,4 @@
-export type BlockType = "character" | "dialogue" | "narrative";
-
-export interface CharacterBlock {
-  id: string;
-  type: "character";
-  character: string;
-}
+export type BlockType = "dialogue" | "narrative";
 
 export interface NarrativeBlock {
   id: string;
@@ -15,11 +9,11 @@ export interface NarrativeBlock {
 export interface DialogueBlock {
   id: string;
   type: "dialogue";
-  character: string;
+  character?: string;
   text: string;
 }
 
-export type SceneBlock = CharacterBlock | NarrativeBlock | DialogueBlock;
+export type SceneBlock = NarrativeBlock | DialogueBlock;
 
 export interface Scene {
   id: string;
@@ -87,29 +81,25 @@ export function createDefaultProject(): Project {
 }
 
 function assertValidBlock(block: SceneBlock): void {
-  if (block.type === "character") {
-    if (typeof block.character !== "string") {
-      throw new Error("Character block character must be string.");
+  if (block.type === "narrative") {
+    if (typeof block.text !== "string") {
+      throw new Error("Narrative block text must be string.");
     }
-  }
-  if (block.type === "narrative" && typeof block.text !== "string") {
-    throw new Error("Narrative block text must be string.");
+    return;
   }
   if (block.type === "dialogue") {
-    if (typeof block.character !== "string" || typeof block.text !== "string") {
-      throw new Error("Dialogue block fields must be string.");
+    if (typeof block.text !== "string") {
+      throw new Error("Dialogue block text must be string.");
+    }
+    if (block.character !== undefined && typeof block.character !== "string") {
+      throw new Error("Dialogue block character must be string when present.");
     }
   }
 }
 
 function assertBlockReadyForExport(block: SceneBlock): void {
-  if (block.type === "character" && block.character.trim().length === 0) {
-    throw new Error("Character block must contain character.");
-  }
-  if (block.type === "dialogue") {
-    if (block.character.trim().length === 0 || block.text.trim().length === 0) {
-      throw new Error("Dialogue block must contain character and text.");
-    }
+  if (block.type === "dialogue" && block.text.trim().length === 0) {
+    throw new Error("Dialogue block must contain text.");
   }
 }
 
@@ -137,8 +127,8 @@ export function assertProjectInvariant(project: Project): void {
       }
       seenSceneIds.add(scene.id);
       for (const block of scene.blocks) {
-        if (block.type !== "character" && block.type !== "narrative" && block.type !== "dialogue") {
-          throw new Error("Scene block type must be character, narrative or dialogue.");
+        if (block.type !== "narrative" && block.type !== "dialogue") {
+          throw new Error("Scene block type must be narrative or dialogue.");
         }
         assertValidBlock(block);
       }
@@ -157,27 +147,84 @@ export function assertProjectReadyForExport(project: Project): void {
   }
 }
 
-export function toDialogueText(character: string, text: string): string {
-  return `${character}：“${text}”`;
+export function toDialogueText(character: string | undefined, text: string): string {
+  const speaker = character?.trim();
+  if (!speaker) {
+    return `“${text}”`;
+  }
+  return `${speaker}：“${text}”`;
+}
+
+interface LegacyBlock {
+  id?: string;
+  type?: string;
+  character?: unknown;
+  text?: unknown;
+}
+
+function migrateLegacyBlocks(rawBlocks: unknown): SceneBlock[] {
+  const list = Array.isArray(rawBlocks) ? (rawBlocks as LegacyBlock[]) : [];
+  const result: SceneBlock[] = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const block = list[i] ?? {};
+    const id = typeof block.id === "string" ? block.id : randomId();
+    const text = typeof block.text === "string" ? block.text : "";
+    const character = typeof block.character === "string" ? block.character : "";
+
+    if (block.type === "action" || block.type === "narrative") {
+      result.push({ id, type: "narrative", text });
+      continue;
+    }
+
+    if (block.type === "character") {
+      const next = list[i + 1] ?? {};
+      const nextCharacter = typeof next.character === "string" ? next.character : "";
+      const nextText = typeof next.text === "string" ? next.text : "";
+      if (next.type === "dialogue") {
+        const mergedCharacter = character || nextCharacter;
+        result.push({
+          id: typeof next.id === "string" ? next.id : id,
+          type: "dialogue",
+          character: mergedCharacter || undefined,
+          text: nextText,
+        });
+        i += 1;
+      } else {
+        result.push({
+          id,
+          type: "dialogue",
+          character: character || undefined,
+          text: "",
+        });
+      }
+      continue;
+    }
+
+    if (block.type === "dialogue") {
+      result.push({
+        id,
+        type: "dialogue",
+        character: character || undefined,
+        text,
+      });
+      continue;
+    }
+
+    result.push({ id, type: "narrative", text });
+  }
+
+  return result;
 }
 
 export function parseProject(raw: string): Project {
   const parsed = JSON.parse(raw) as Project;
-  // Backward compatibility for previously saved "action" blocks.
   for (const script of parsed.scripts ?? []) {
     for (const scene of script.scenes ?? []) {
       if (!Array.isArray(scene.characters)) {
         scene.characters = [];
       }
-      scene.blocks = scene.blocks.map((block) => {
-        if ((block as { type?: string }).type === "action") {
-          return {
-            ...block,
-            type: "narrative",
-          } as SceneBlock;
-        }
-        return block;
-      });
+      scene.blocks = migrateLegacyBlocks(scene.blocks);
     }
   }
   assertProjectInvariant(parsed);
