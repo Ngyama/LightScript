@@ -31,6 +31,7 @@ type EditorState = {
   addScript: () => void;
   addScene: (scriptId: string) => void;
   deleteScene: (scriptId: string, sceneId: string) => boolean;
+  deleteScript: (scriptId: string) => boolean;
   renameScript: (scriptId: string, title: string) => void;
   renameScene: (sceneId: string, title: string) => void;
   setSceneBlocks: (sceneId: string, blocks: SceneBlock[], sceneCharacters?: string[]) => void;
@@ -193,6 +194,42 @@ export const useEditorStore = create<EditorState>((set) => ({
         selection: {
           projectId: state.project.id,
           scriptId,
+          sceneId: fallbackScene?.id,
+        },
+      };
+    });
+    return deleted;
+  },
+  deleteScript: (scriptId) => {
+    let deleted = false;
+    set((state) => {
+      if (state.project.scripts.length <= 1) {
+        return state;
+      }
+      const targetIdx = state.project.scripts.findIndex((script) => script.id === scriptId);
+      if (targetIdx === -1) {
+        return state;
+      }
+      const nextScripts = [
+        ...state.project.scripts.slice(0, targetIdx),
+        ...state.project.scripts.slice(targetIdx + 1),
+      ];
+      const updatedProject = withInvariant({ ...state.project, scripts: nextScripts });
+      deleted = true;
+
+      const wasSelected = state.selection.scriptId === scriptId;
+      if (!wasSelected) {
+        return { project: updatedProject };
+      }
+
+      const fallbackIdx = Math.min(targetIdx, nextScripts.length - 1);
+      const fallbackScript = nextScripts[fallbackIdx];
+      const fallbackScene = fallbackScript?.scenes[0];
+      return {
+        project: updatedProject,
+        selection: {
+          projectId: state.project.id,
+          scriptId: fallbackScript?.id,
           sceneId: fallbackScene?.id,
         },
       };

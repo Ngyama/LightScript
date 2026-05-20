@@ -4,14 +4,14 @@ import { useEditorStore, useSelectedScene } from "../../state/editorStore";
 import { createDialogueBlock, createNarrativeBlock } from "./inputStateMachine";
 import { computeSceneStats } from "./sceneStats";
 
-const TYPE_LABEL: Record<BlockType, string> = {
-  dialogue: "Dialogue",
-  narrative: "Narrative",
-};
-
 const CHARACTER_SLOT_COUNT = 5;
 const SPEAKER_MENU_WIDTH = 160;
 const SPEAKER_MENU_MAX_HEIGHT = 220;
+const DIALOGUE_SCAFFOLD = "「」";
+
+function isDialogueEmpty(text: string): boolean {
+  return text.trim().length === 0 || text === DIALOGUE_SCAFFOLD;
+}
 
 type FieldElement = HTMLInputElement | HTMLTextAreaElement;
 
@@ -117,11 +117,20 @@ function CharacterRoster({ characters, onChange }: CharacterRosterProps) {
     { length: CHARACTER_SLOT_COUNT },
     (_, idx) => characters[idx] ?? "",
   );
+  const slotRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const updateSlot = (idx: number, value: string) => {
     const next = [...slots];
     next[idx] = value;
     onChange(next);
+  };
+
+  const focusSlotEnd = (idx: number) => {
+    const node = slotRefs.current[idx];
+    if (!node) return;
+    node.focus();
+    const len = node.value.length;
+    node.setSelectionRange(len, len);
   };
 
   return (
@@ -131,10 +140,23 @@ function CharacterRoster({ characters, onChange }: CharacterRosterProps) {
         {slots.map((value, idx) => (
           <input
             key={idx}
+            ref={(node) => {
+              slotRefs.current[idx] = node;
+            }}
             className="character-roster-slot"
             value={value}
             placeholder={`角色 ${idx + 1}`}
             onChange={(event) => updateSlot(idx, event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Backspace" &&
+                event.currentTarget.value === "" &&
+                idx > 0
+              ) {
+                event.preventDefault();
+                focusSlotEnd(idx - 1);
+              }
+            }}
           />
         ))}
       </div>
@@ -192,13 +214,14 @@ function DialogueBlockRow({
 
   return (
     <div className="block-editor-row">
-      <div className="block-attr-label">{TYPE_LABEL.dialogue}</div>
-      <div className="block-editor-content block-editor-content-dialogue">
+      <div className="block-editor-gutter">
         <SpeakerChip
           value={block.character}
           isOpen={speakerMenuOpen}
           onToggle={(anchor) => onSpeakerToggle(block.id, anchor)}
         />
+      </div>
+      <div className="block-editor-content">
         <textarea
           ref={(node) => {
             textareaRef.current = node;
@@ -256,8 +279,12 @@ export function SceneEditor() {
     const node = inputRefs.current[pendingFocusId];
     if (node) {
       node.focus();
-      const len = node.value.length;
-      node.setSelectionRange(len, len);
+      if (node.value === DIALOGUE_SCAFFOLD) {
+        node.setSelectionRange(1, 1);
+      } else {
+        const len = node.value.length;
+        node.setSelectionRange(len, len);
+      }
     }
     setPendingFocusId(null);
   }, [pendingFocusId, blocks]);
@@ -306,7 +333,7 @@ export function SceneEditor() {
     const current = blocks[index];
     const inheritedCharacter =
       current && current.type === "dialogue" ? current.character : undefined;
-    const newBlock = createDialogueBlock(inheritedCharacter, "");
+    const newBlock = createDialogueBlock(inheritedCharacter, DIALOGUE_SCAFFOLD);
     const next = [...blocks.slice(0, index + 1), newBlock, ...blocks.slice(index + 1)];
     persistBlocks(next);
     setPendingFocusId(newBlock.id);
@@ -327,8 +354,22 @@ export function SceneEditor() {
   const convertBlockType = (index: number, newType: BlockType) => {
     const current = blocks[index];
     if (!current || current.type === newType) return;
+    let nextBlock = changeBlockType(current, newType);
+    if (
+      newType === "dialogue" &&
+      nextBlock.type === "dialogue" &&
+      nextBlock.text.trim().length === 0
+    ) {
+      nextBlock = { ...nextBlock, text: DIALOGUE_SCAFFOLD };
+    } else if (
+      newType === "narrative" &&
+      nextBlock.type === "narrative" &&
+      nextBlock.text === DIALOGUE_SCAFFOLD
+    ) {
+      nextBlock = { ...nextBlock, text: "" };
+    }
     const next = [...blocks];
-    next[index] = changeBlockType(current, newType);
+    next[index] = nextBlock;
     persistBlocks(next);
     setPendingFocusId(current.id);
   };
@@ -408,7 +449,7 @@ export function SceneEditor() {
             if (block.type === "narrative") {
               return (
                 <div key={block.id} className="block-editor-row">
-                  <div className="block-attr-label">{TYPE_LABEL.narrative}</div>
+                  <div className="block-editor-gutter" aria-hidden="true" />
                   <div className="block-editor-content">
                     <input
                       ref={(node) => registerRef(block.id, node)}
@@ -457,14 +498,14 @@ export function SceneEditor() {
                 onTextKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    if (block.text.trim().length > 0) {
-                      insertDialogueAfter(index);
-                    } else {
+                    if (isDialogueEmpty(event.currentTarget.value)) {
                       convertBlockType(index, "narrative");
+                    } else {
+                      insertDialogueAfter(index);
                     }
                   } else if (
                     event.key === "Backspace" &&
-                    event.currentTarget.value === ""
+                    isDialogueEmpty(event.currentTarget.value)
                   ) {
                     if (deleteBlockAt(index)) {
                       event.preventDefault();

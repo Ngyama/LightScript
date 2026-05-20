@@ -447,13 +447,12 @@ body {
   gap: 14px;
 }
 
-.block-attr-label {
-  font-size: 13px;
-  color: #8a8a8a;
-  text-align: right;
+.block-editor-gutter {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  min-height: 1em;
   user-select: none;
-  letter-spacing: 0.02em;
-  font-weight: 500;
 }
 
 .block-editor-content {
@@ -544,18 +543,6 @@ textarea.block-input,
 
 .character-roster-slot::placeholder {
   color: #bcbcbc;
-}
-
-.block-editor-content-dialogue {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  width: 100%;
-}
-
-.block-editor-content-dialogue .block-input {
-  flex: 1;
-  min-width: 0;
 }
 
 .speaker-chip {

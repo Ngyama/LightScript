@@ -19,6 +19,7 @@ export function StructureTree() {
   const addScript = useEditorStore((state) => state.addScript);
   const addScene = useEditorStore((state) => state.addScene);
   const deleteScene = useEditorStore((state) => state.deleteScene);
+  const deleteScript = useEditorStore((state) => state.deleteScript);
   const renameScript = useEditorStore((state) => state.renameScript);
   const renameScene = useEditorStore((state) => state.renameScene);
 
@@ -142,6 +143,14 @@ export function StructureTree() {
     }
   };
 
+  const handleDeleteScript = (scriptId: string) => {
+    closeMenu();
+    const deleted = deleteScript(scriptId);
+    if (!deleted) {
+      window.alert("At least one script must remain in the project.");
+    }
+  };
+
   return (
     <div className="tree">
       <div className="tree-header">
@@ -259,6 +268,15 @@ export function StructureTree() {
                     onClick={() => startEditScript(menuTarget.script.id, menuTarget.script.title)}
                   >
                     Rename
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="is-danger"
+                    onClick={() => handleDeleteScript(menuTarget.script.id)}
+                  >
+                    Delete
                   </button>
                 </li>
               </>
