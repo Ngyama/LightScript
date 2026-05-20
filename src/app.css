@@ -607,19 +607,41 @@ textarea.block-input,
   font: inherit;
   font-size: 13px;
   color: #1c1c1c;
-}
-
-.speaker-menu button:hover {
-  background: #ececec;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .speaker-menu button.is-active {
-  background: #ececec;
+  background: #d6e6ff;
+}
+
+.speaker-menu button.is-current {
   font-weight: 600;
+}
+
+.speaker-menu button.is-current::after {
+  content: "•";
+  margin-left: auto;
+  color: #2e6fff;
 }
 
 .speaker-menu .speaker-empty-option {
   color: #888;
+}
+
+.speaker-menu-index {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 16px;
+  padding: 0 4px;
+  height: 16px;
+  font-size: 11px;
+  color: #888;
+  background: #f0f0f0;
+  border-radius: 4px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 .speaker-menu-hint {

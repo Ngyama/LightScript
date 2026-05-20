@@ -8,9 +8,44 @@ const CHARACTER_SLOT_COUNT = 5;
 const SPEAKER_MENU_WIDTH = 160;
 const SPEAKER_MENU_MAX_HEIGHT = 220;
 const DIALOGUE_SCAFFOLD = "「」";
+const SPEAKER_HOTKEY = "Tab";
 
 function isDialogueEmpty(text: string): boolean {
   return text.trim().length === 0 || text === DIALOGUE_SCAFFOLD;
+}
+
+function pickNextSpeaker(
+  blocks: SceneBlock[],
+  newPosition: number,
+  roster: string[],
+): string | undefined {
+  if (roster.length === 0) return undefined;
+  if (roster.length === 1) return roster[0];
+
+  let lastSpeaker: string | undefined;
+  let lastIdx = -1;
+  for (let i = newPosition - 1; i >= 0; i--) {
+    const block = blocks[i];
+    if (block.type === "dialogue" && block.character && block.character.trim().length > 0) {
+      lastSpeaker = block.character;
+      lastIdx = i;
+      break;
+    }
+  }
+  if (!lastSpeaker) return undefined;
+
+  for (let i = lastIdx - 1; i >= 0; i--) {
+    const block = blocks[i];
+    if (
+      block.type === "dialogue" &&
+      block.character &&
+      block.character.trim().length > 0 &&
+      block.character !== lastSpeaker
+    ) {
+      return block.character;
+    }
+  }
+  return undefined;
 }
 
 type FieldElement = HTMLInputElement | HTMLTextAreaElement;
@@ -105,6 +140,7 @@ function isCaretAtLastLogicalLine(textarea: HTMLTextAreaElement): boolean {
 interface SpeakerMenuState {
   blockId: string;
   position: { top: number; left: number };
+  highlight: number;
 }
 
 interface CharacterRosterProps {
@@ -168,15 +204,19 @@ interface SpeakerChipProps {
   value: string | undefined;
   isOpen: boolean;
   onToggle: (anchor: HTMLButtonElement | null) => void;
+  registerAnchor?: (node: HTMLButtonElement | null) => void;
 }
 
-function SpeakerChip({ value, isOpen, onToggle }: SpeakerChipProps) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
+function SpeakerChip({ value, isOpen, onToggle, registerAnchor }: SpeakerChipProps) {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const empty = !value || value.trim().length === 0;
   const display = empty ? "未选" : value!.trim();
   return (
     <button
-      ref={buttonRef}
+      ref={(node) => {
+        buttonRef.current = node;
+        registerAnchor?.(node);
+      }}
       type="button"
       className={`speaker-chip${empty ? " is-empty" : ""}${isOpen ? " is-open" : ""}`}
       onClick={() => onToggle(buttonRef.current)}
@@ -189,6 +229,7 @@ function SpeakerChip({ value, isOpen, onToggle }: SpeakerChipProps) {
 interface DialogueBlockRowProps {
   block: DialogueBlock;
   registerRef: (id: string, node: HTMLTextAreaElement | null) => void;
+  registerChipAnchor: (id: string, node: HTMLButtonElement | null) => void;
   speakerMenuOpen: boolean;
   onSpeakerToggle: (blockId: string, anchor: HTMLButtonElement | null) => void;
   onTextChange: (value: string) => void;
@@ -198,6 +239,7 @@ interface DialogueBlockRowProps {
 function DialogueBlockRow({
   block,
   registerRef,
+  registerChipAnchor,
   speakerMenuOpen,
   onSpeakerToggle,
   onTextChange,
@@ -219,6 +261,7 @@ function DialogueBlockRow({
           value={block.character}
           isOpen={speakerMenuOpen}
           onToggle={(anchor) => onSpeakerToggle(block.id, anchor)}
+          registerAnchor={(node) => registerChipAnchor(block.id, node)}
         />
       </div>
       <div className="block-editor-content">
@@ -244,7 +287,9 @@ export function SceneEditor() {
   const setSceneBlocks = useEditorStore((state) => state.setSceneBlocks);
   const setSceneCharacters = useEditorStore((state) => state.setSceneCharacters);
   const inputRefs = useRef<Record<string, FieldElement | null>>({});
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
+  const [pendingSpeakerMenuForId, setPendingSpeakerMenuForId] = useState<string | null>(null);
   const [speakerMenu, setSpeakerMenu] = useState<SpeakerMenuState | null>(null);
 
   const blocks = useMemo<SceneBlock[]>(() => {
@@ -289,6 +334,69 @@ export function SceneEditor() {
     setPendingFocusId(null);
   }, [pendingFocusId, blocks]);
 
+  useEffect(() => {
+    if (!pendingSpeakerMenuForId) return;
+    const anchor = chipRefs.current[pendingSpeakerMenuForId];
+    if (!anchor) return;
+    const blockId = pendingSpeakerMenuForId;
+    const rect = anchor.getBoundingClientRect();
+    const left = Math.max(
+      8,
+      Math.min(rect.right - SPEAKER_MENU_WIDTH, window.innerWidth - SPEAKER_MENU_WIDTH - 8),
+    );
+    const top = Math.min(rect.bottom + 4, window.innerHeight - SPEAKER_MENU_MAX_HEIGHT - 8);
+    const block = blocks.find((b) => b.id === blockId);
+    let highlight = speakerOptions.length > 0 ? 1 : 0;
+    if (block?.type === "dialogue" && block.character) {
+      const idx = speakerOptions.indexOf(block.character);
+      if (idx >= 0) highlight = idx + 1;
+    }
+    setSpeakerMenu({ blockId, position: { top, left }, highlight });
+    setPendingSpeakerMenuForId(null);
+  }, [pendingSpeakerMenuForId, blocks, speakerOptions]);
+
+  useEffect(() => {
+    if (!speakerMenu) return;
+    const totalItems = speakerOptions.length + 1;
+    const handler = (event: KeyboardEvent) => {
+      const isNumber = /^[1-9]$/.test(event.key);
+      if (isNumber) {
+        const n = parseInt(event.key, 10);
+        if (n >= 1 && n <= speakerOptions.length) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          setBlockSpeaker(speakerMenu.blockId, speakerOptions[n - 1]);
+          setSpeakerMenu(null);
+        }
+        return;
+      }
+      if (!["ArrowDown", "ArrowUp", "Enter", "Escape", "Tab"].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (event.key === "ArrowDown") {
+        setSpeakerMenu((curr) =>
+          curr ? { ...curr, highlight: (curr.highlight + 1) % totalItems } : curr,
+        );
+      } else if (event.key === "ArrowUp") {
+        setSpeakerMenu((curr) =>
+          curr ? { ...curr, highlight: (curr.highlight - 1 + totalItems) % totalItems } : curr,
+        );
+      } else if (event.key === "Enter") {
+        const idx = speakerMenu.highlight;
+        const value = idx === 0 ? undefined : speakerOptions[idx - 1];
+        setBlockSpeaker(speakerMenu.blockId, value);
+        setSpeakerMenu(null);
+      } else if (event.key === "Escape" || event.key === "Tab") {
+        setSpeakerMenu(null);
+      }
+    };
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speakerMenu, speakerOptions, blocks]);
+
   const persistBlocks = (nextBlocks: SceneBlock[]) => {
     if (!scene) return;
     setSceneBlocks(scene.id, nextBlocks, scene.characters);
@@ -330,13 +438,14 @@ export function SceneEditor() {
   };
 
   const insertDialogueAfter = (index: number) => {
-    const current = blocks[index];
-    const inheritedCharacter =
-      current && current.type === "dialogue" ? current.character : undefined;
-    const newBlock = createDialogueBlock(inheritedCharacter, DIALOGUE_SCAFFOLD);
+    const nextSpeaker = pickNextSpeaker(blocks, index + 1, speakerOptions);
+    const newBlock = createDialogueBlock(nextSpeaker, DIALOGUE_SCAFFOLD);
     const next = [...blocks.slice(0, index + 1), newBlock, ...blocks.slice(index + 1)];
     persistBlocks(next);
     setPendingFocusId(newBlock.id);
+    if (!nextSpeaker && speakerOptions.length >= 2) {
+      setPendingSpeakerMenuForId(newBlock.id);
+    }
   };
 
   const deleteBlockAt = (index: number): boolean => {
@@ -368,10 +477,24 @@ export function SceneEditor() {
     ) {
       nextBlock = { ...nextBlock, text: "" };
     }
+
+    let autoOpenMenu = false;
+    if (newType === "dialogue" && nextBlock.type === "dialogue") {
+      const auto = pickNextSpeaker(blocks, index, speakerOptions);
+      if (auto) {
+        nextBlock = { ...nextBlock, character: auto };
+      } else if (speakerOptions.length >= 2) {
+        autoOpenMenu = true;
+      }
+    }
+
     const next = [...blocks];
     next[index] = nextBlock;
     persistBlocks(next);
     setPendingFocusId(current.id);
+    if (autoOpenMenu) {
+      setPendingSpeakerMenuForId(current.id);
+    }
   };
 
   if (!scene) {
@@ -383,27 +506,52 @@ export function SceneEditor() {
     );
   }
 
-  const handleSpeakerToggle = (blockId: string, anchor: HTMLButtonElement | null) => {
-    if (speakerMenu && speakerMenu.blockId === blockId) {
-      setSpeakerMenu(null);
-      return;
+  const initialHighlightForBlock = (blockId: string): number => {
+    const block = blocks.find((b) => b.id === blockId);
+    if (block?.type === "dialogue" && block.character) {
+      const idx = speakerOptions.indexOf(block.character);
+      if (idx >= 0) return idx + 1;
     }
-    if (!anchor) {
-      setSpeakerMenu({ blockId, position: { top: 0, left: 0 } });
-      return;
-    }
+    return speakerOptions.length > 0 ? 1 : 0;
+  };
+
+  const openSpeakerMenuForBlock = (blockId: string, anchor: HTMLButtonElement) => {
     const rect = anchor.getBoundingClientRect();
     const left = Math.max(
       8,
       Math.min(rect.right - SPEAKER_MENU_WIDTH, window.innerWidth - SPEAKER_MENU_WIDTH - 8),
     );
     const top = Math.min(rect.bottom + 4, window.innerHeight - SPEAKER_MENU_MAX_HEIGHT - 8);
-    setSpeakerMenu({ blockId, position: { top, left } });
+    setSpeakerMenu({
+      blockId,
+      position: { top, left },
+      highlight: initialHighlightForBlock(blockId),
+    });
+  };
+
+  const handleSpeakerToggle = (blockId: string, anchor: HTMLButtonElement | null) => {
+    if (speakerMenu && speakerMenu.blockId === blockId) {
+      setSpeakerMenu(null);
+      return;
+    }
+    if (!anchor) {
+      setSpeakerMenu({
+        blockId,
+        position: { top: 0, left: 0 },
+        highlight: initialHighlightForBlock(blockId),
+      });
+      return;
+    }
+    openSpeakerMenuForBlock(blockId, anchor);
   };
 
   const handlePickSpeaker = (blockId: string, value: string | undefined) => {
     setBlockSpeaker(blockId, value);
     setSpeakerMenu(null);
+  };
+
+  const registerChipAnchor = (id: string, node: HTMLButtonElement | null) => {
+    chipRefs.current[id] = node;
   };
 
   const focusFromCurrent = (
@@ -492,6 +640,7 @@ export function SceneEditor() {
                 key={block.id}
                 block={block}
                 registerRef={registerRef}
+                registerChipAnchor={registerChipAnchor}
                 speakerMenuOpen={speakerMenu?.blockId === block.id}
                 onSpeakerToggle={handleSpeakerToggle}
                 onTextChange={(value) => updateDialogueText(index, value)}
@@ -522,6 +671,21 @@ export function SceneEditor() {
                         event.preventDefault();
                       }
                     }
+                  } else if (
+                    event.key === SPEAKER_HOTKEY &&
+                    !event.ctrlKey &&
+                    !event.metaKey &&
+                    !event.altKey &&
+                    !event.shiftKey &&
+                    speakerOptions.length >= 2
+                  ) {
+                    event.preventDefault();
+                    const anchor = chipRefs.current[block.id];
+                    if (anchor) {
+                      openSpeakerMenuForBlock(block.id, anchor);
+                    } else {
+                      setPendingSpeakerMenuForId(block.id);
+                    }
                   }
                 }}
               />
@@ -538,6 +702,7 @@ export function SceneEditor() {
           const targetBlock = blocks.find((b) => b.id === speakerMenu.blockId);
           if (!targetBlock || targetBlock.type !== "dialogue") return null;
           const currentSpeaker = targetBlock.character;
+          const emptyHighlighted = speakerMenu.highlight === 0;
           return (
             <>
               <div className="selector-overlay" onMouseDown={() => setSpeakerMenu(null)} />
@@ -548,9 +713,19 @@ export function SceneEditor() {
                 <li>
                   <button
                     type="button"
-                    className={`speaker-empty-option${!currentSpeaker ? " is-active" : ""}`}
+                    className={[
+                      "speaker-empty-option",
+                      !currentSpeaker ? "is-current" : "",
+                      emptyHighlighted ? "is-active" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     onClick={() => handlePickSpeaker(speakerMenu.blockId, undefined)}
+                    onMouseEnter={() =>
+                      setSpeakerMenu((curr) => (curr ? { ...curr, highlight: 0 } : curr))
+                    }
                   >
+                    <span className="speaker-menu-index">·</span>
                     （无）
                   </button>
                 </li>
@@ -559,17 +734,30 @@ export function SceneEditor() {
                     <span className="speaker-menu-hint">在上方角色栏先填写角色名</span>
                   </li>
                 )}
-                {speakerOptions.map((option) => (
-                  <li key={option}>
-                    <button
-                      type="button"
-                      className={option === currentSpeaker ? "is-active" : ""}
-                      onClick={() => handlePickSpeaker(speakerMenu.blockId, option)}
-                    >
-                      {option}
-                    </button>
-                  </li>
-                ))}
+                {speakerOptions.map((option, idx) => {
+                  const highlightIdx = idx + 1;
+                  const isHighlight = speakerMenu.highlight === highlightIdx;
+                  const isCurrent = option === currentSpeaker;
+                  return (
+                    <li key={option}>
+                      <button
+                        type="button"
+                        className={[isCurrent ? "is-current" : "", isHighlight ? "is-active" : ""]
+                          .filter(Boolean)
+                          .join(" ")}
+                        onClick={() => handlePickSpeaker(speakerMenu.blockId, option)}
+                        onMouseEnter={() =>
+                          setSpeakerMenu((curr) =>
+                            curr ? { ...curr, highlight: highlightIdx } : curr,
+                          )
+                        }
+                      >
+                        <span className="speaker-menu-index">{idx + 1}</span>
+                        {option}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </>
           );
