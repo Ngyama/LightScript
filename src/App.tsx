@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Download, Home, Save } from "lucide-react";
 import "./app.css";
 import { assertProjectInvariant, createDefaultProject } from "./domain/model";
 import { useEditorStore } from "./state/editorStore";
@@ -14,17 +15,16 @@ import {
   setRepoPath,
   type ProjectSummary,
 } from "./storage/projectStorage";
-import { SceneEditor } from "./ui/editor/SceneEditor";
-import { MainLayout } from "./ui/layout/MainLayout";
-import { SelectionMetaPanel } from "./ui/meta/SelectionMetaPanel";
-import { StructureTree } from "./ui/navigation/StructureTree";
+import { EditorCanvas } from "./ui/canvas/EditorCanvas";
+import { FloatingActionBar } from "./ui/floating/FloatingActionBar";
+import { FloatingActionButton } from "./ui/floating/FloatingActionButton";
+import { SavedStatus } from "./ui/floating/SavedStatus";
+import { OrbitNavigator } from "./ui/navigation/OrbitNavigator";
 
 type AppStage = "loading" | "setupRepo" | "projectHub" | "editor";
 
 export default function App() {
   const project = useEditorStore((state) => state.project);
-  const selection = useEditorStore((state) => state.selection);
-  const updateProjectTitle = useEditorStore((state) => state.updateProjectTitle);
   const hydrateProject = useEditorStore((state) => state.hydrateProject);
   const isHydrated = useEditorStore((state) => state.isHydrated);
   const setHydrated = useEditorStore((state) => state.setHydrated);
@@ -252,49 +252,32 @@ export default function App() {
     );
   }
 
+  const handleSave = () => {
+    if (!activeProjectPath) return;
+    void saveProject(activeProjectPath, project).then(() =>
+      setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`),
+    );
+  };
+
+  const handleExport = () => {
+    if (!activeProjectPath) return;
+    void exportProjectTree(activeProjectPath, project).then((path) =>
+      setSaveInfo(`Exported to ${path}`),
+    );
+  };
+
+  const handleHub = () => setStage("projectHub");
+
   return (
-    <div className="root">
-      <header className="topbar">
-        <input
-          aria-label="Project title"
-          value={project.title}
-          onChange={(event) => updateProjectTitle(event.target.value)}
-        />
-        <div className="topbar-actions">
-          <button
-            type="button"
-            onClick={() => {
-              if (!activeProjectPath) {
-                return;
-              }
-              void saveProject(activeProjectPath, project).then(() =>
-                setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`),
-              );
-            }}
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!activeProjectPath) {
-                return;
-              }
-              void exportProjectTree(activeProjectPath, project).then((path) => setSaveInfo(`Exported to ${path}`));
-            }}
-          >
-            Export
-          </button>
-          <button type="button" onClick={() => setStage("projectHub")}>
-            Project Hub
-          </button>
-          <span>{saveInfo}</span>
-        </div>
-      </header>
-      <MainLayout
-        sidebar={<StructureTree />}
-        content={selection.sceneId ? <SceneEditor /> : <SelectionMetaPanel />}
-      />
+    <div className="app-shell">
+      <EditorCanvas />
+      <OrbitNavigator />
+      <FloatingActionBar>
+        <FloatingActionButton icon={Save} label="Save" onClick={handleSave} />
+        <FloatingActionButton icon={Download} label="Export" onClick={handleExport} />
+        <FloatingActionButton icon={Home} label="Hub" onClick={handleHub} />
+      </FloatingActionBar>
+      <SavedStatus text={saveInfo} />
       {errorMessage && <p className="error global-error">{errorMessage}</p>}
     </div>
   );

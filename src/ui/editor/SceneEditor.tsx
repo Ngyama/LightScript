@@ -4,7 +4,6 @@ import { useEditorStore, useSelectedScene } from "../../state/editorStore";
 import { createDialogueBlock, createNarrativeBlock } from "./inputStateMachine";
 import { computeSceneStats } from "./sceneStats";
 
-const CHARACTER_SLOT_COUNT = 5;
 const SPEAKER_MENU_WIDTH = 160;
 const SPEAKER_MENU_MAX_HEIGHT = 220;
 const DIALOGUE_SCAFFOLD = "「」";
@@ -143,63 +142,6 @@ interface SpeakerMenuState {
   highlight: number;
 }
 
-interface CharacterRosterProps {
-  characters: string[];
-  onChange: (next: string[]) => void;
-}
-
-function CharacterRoster({ characters, onChange }: CharacterRosterProps) {
-  const slots = Array.from(
-    { length: CHARACTER_SLOT_COUNT },
-    (_, idx) => characters[idx] ?? "",
-  );
-  const slotRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-  const updateSlot = (idx: number, value: string) => {
-    const next = [...slots];
-    next[idx] = value;
-    onChange(next);
-  };
-
-  const focusSlotEnd = (idx: number) => {
-    const node = slotRefs.current[idx];
-    if (!node) return;
-    node.focus();
-    const len = node.value.length;
-    node.setSelectionRange(len, len);
-  };
-
-  return (
-    <div className="character-roster">
-      <span className="character-roster-label">Characters</span>
-      <div className="character-roster-slots">
-        {slots.map((value, idx) => (
-          <input
-            key={idx}
-            ref={(node) => {
-              slotRefs.current[idx] = node;
-            }}
-            className="character-roster-slot"
-            value={value}
-            placeholder={`角色 ${idx + 1}`}
-            onChange={(event) => updateSlot(idx, event.target.value)}
-            onKeyDown={(event) => {
-              if (
-                event.key === "Backspace" &&
-                event.currentTarget.value === "" &&
-                idx > 0
-              ) {
-                event.preventDefault();
-                focusSlotEnd(idx - 1);
-              }
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 interface SpeakerChipProps {
   value: string | undefined;
   isOpen: boolean;
@@ -285,7 +227,6 @@ function DialogueBlockRow({
 export function SceneEditor() {
   const scene = useSelectedScene();
   const setSceneBlocks = useEditorStore((state) => state.setSceneBlocks);
-  const setSceneCharacters = useEditorStore((state) => state.setSceneCharacters);
   const inputRefs = useRef<Record<string, FieldElement | null>>({});
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
@@ -584,13 +525,6 @@ export function SceneEditor() {
 
   return (
     <section className="scene-editor">
-      <header className="scene-editor-header">
-        <h2>{scene.title}</h2>
-      </header>
-      <CharacterRoster
-        characters={scene.characters}
-        onChange={(next) => setSceneCharacters(scene.id, next)}
-      />
       <div className="scene-editor-body">
         <div className="scene-editor-blocks">
           {blocks.map((block, index) => {
