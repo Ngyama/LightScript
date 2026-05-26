@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { FilePlus, FolderPlus } from "lucide-react";
 import { useEditorStore } from "../../state/editorStore";
 
 type ContextMenuState =
@@ -14,7 +16,6 @@ type EditingState =
 export function StructureTree() {
   const project = useEditorStore((state) => state.project);
   const selection = useEditorStore((state) => state.selection);
-  const selectScript = useEditorStore((state) => state.selectScript);
   const selectScene = useEditorStore((state) => state.selectScene);
   const addScript = useEditorStore((state) => state.addScript);
   const addScene = useEditorStore((state) => state.addScene);
@@ -153,25 +154,22 @@ export function StructureTree() {
 
   return (
     <div className="tree">
-      <div className="tree-header">
-        <h1>{project.title}</h1>
-        <button onClick={addScript} type="button">
-          + Script
-        </button>
-      </div>
       <ul className="tree-root">
         <li>
-          <button
-            type="button"
-            className={`tree-node tree-project ${!selection.scriptId ? "is-active" : ""}`}
-            onClick={() =>
-              useEditorStore.setState({
-                selection: { projectId: project.id, scriptId: undefined, sceneId: undefined },
-              })
-            }
-          >
-            Project
-          </button>
+          <div className="tree-row">
+            <div className="tree-node tree-project is-static" aria-disabled="true">
+              Project
+            </div>
+            <button
+              type="button"
+              className="tree-row-add tree-row-add--script"
+              onClick={() => addScript()}
+              title="Add script"
+              aria-label="Add script"
+            >
+              <FolderPlus size={14} strokeWidth={1.75} />
+            </button>
+          </div>
           <ul>
             {project.scripts.map((script) => {
               const isEditingScript = editing?.kind === "script" && editing.id === script.id;
@@ -189,14 +187,26 @@ export function StructureTree() {
                         onBlur={commitEdit}
                       />
                     ) : (
-                      <button
-                        type="button"
-                        className={`tree-node ${selection.scriptId === script.id && !selection.sceneId ? "is-active" : ""}`}
-                        onClick={() => selectScript(script.id)}
-                        onContextMenu={(event) => openScriptMenu(event, script.id)}
-                      >
-                        {script.title}
-                      </button>
+                      <>
+                        <div
+                          className={`tree-node tree-script is-static ${
+                            selection.scriptId === script.id ? "is-active" : ""
+                          }`}
+                          onContextMenu={(event) => openScriptMenu(event, script.id)}
+                          aria-disabled="true"
+                        >
+                          {script.title}
+                        </div>
+                        <button
+                          type="button"
+                          className="tree-row-add tree-row-add--scene"
+                          onClick={() => addScene(script.id)}
+                          title="Add scene"
+                          aria-label="Add scene"
+                        >
+                          <FilePlus size={13} strokeWidth={1.75} />
+                        </button>
+                      </>
                     )}
                   </div>
                   <ul>
@@ -240,70 +250,73 @@ export function StructureTree() {
           </ul>
         </li>
       </ul>
-      {menu && menuTarget && (
-        <>
-          <div
-            className="tree-context-overlay"
-            onMouseDown={closeMenu}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              closeMenu();
-            }}
-          />
-          <ul
-            className="tree-context-menu"
-            style={{ left: menu.x, top: menu.y }}
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            {menuTarget.kind === "script" ? (
-              <>
-                <li>
-                  <button type="button" onClick={() => handleAddScene(menuTarget.script.id)}>
-                    New scene
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => startEditScript(menuTarget.script.id, menuTarget.script.title)}
-                  >
-                    Rename
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    className="is-danger"
-                    onClick={() => handleDeleteScript(menuTarget.script.id)}
-                  >
-                    Delete
-                  </button>
-                </li>
-              </>
-            ) : (
-              <>
-                <li>
-                  <button
-                    type="button"
-                    onClick={() => startEditScene(menuTarget.scene.id, menuTarget.scene.title)}
-                  >
-                    Rename
-                  </button>
-                </li>
-                <li>
-                  <button
-                    type="button"
-                    className="is-danger"
-                    onClick={() => handleDeleteScene(menuTarget.script.id, menuTarget.scene.id)}
-                  >
-                    Delete
-                  </button>
-                </li>
-              </>
-            )}
-          </ul>
-        </>
-      )}
+      {menu &&
+        menuTarget &&
+        createPortal(
+          <>
+            <div
+              className="tree-context-overlay"
+              onMouseDown={closeMenu}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                closeMenu();
+              }}
+            />
+            <ul
+              className="tree-context-menu"
+              style={{ left: menu.x, top: menu.y }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              {menuTarget.kind === "script" ? (
+                <>
+                  <li>
+                    <button type="button" onClick={() => handleAddScene(menuTarget.script.id)}>
+                      New scene
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => startEditScript(menuTarget.script.id, menuTarget.script.title)}
+                    >
+                      Rename
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className="is-danger"
+                      onClick={() => handleDeleteScript(menuTarget.script.id)}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => startEditScene(menuTarget.scene.id, menuTarget.scene.title)}
+                    >
+                      Rename
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      className="is-danger"
+                      onClick={() => handleDeleteScene(menuTarget.script.id, menuTarget.scene.id)}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                </>
+              )}
+            </ul>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }
