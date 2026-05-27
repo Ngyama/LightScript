@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, Home } from "lucide-react";
+import { Download, Home, Settings } from "lucide-react";
 import "./app.css";
 import { assertProjectInvariant, createDefaultProject } from "./domain/model";
 import { useEditorStore } from "./state/editorStore";
@@ -20,6 +20,7 @@ import { FloatingActionBar } from "./ui/floating/FloatingActionBar";
 import { FloatingActionButton } from "./ui/floating/FloatingActionButton";
 import { SavedStatus } from "./ui/floating/SavedStatus";
 import { OrbitNavigator } from "./ui/navigation/OrbitNavigator";
+import { TitleBar } from "./ui/titlebar/TitleBar";
 
 type AppStage = "loading" | "setupRepo" | "projectHub" | "editor";
 
@@ -173,12 +174,19 @@ export default function App() {
     }
   };
 
+  const titleBarLabel = stage === "editor" ? project.title || "Untitled" : "LightScript";
+
   if (stage === "loading") {
     return (
-      <div className="startup-screen">
-        <div className="startup-card">
-          <h1>LightScript</h1>
-          <p>{loadingMessage}</p>
+      <div className="app-frame">
+        <TitleBar title={titleBarLabel} />
+        <div className="app-body">
+          <div className="startup-screen">
+            <div className="startup-card">
+              <h1>LightScript</h1>
+              <p>{loadingMessage}</p>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -186,22 +194,27 @@ export default function App() {
 
   if (stage === "setupRepo") {
     return (
-      <div className="startup-screen">
-        <div className="startup-card">
-          <h1>Set Repository Path</h1>
-          <p>Choose one local folder as the root for all your projects. You only need to set it once.</p>
-          <input
-            value={repoPath}
-            onChange={(event) => setRepoPathInput(event.target.value)}
-            placeholder="D:\\WritingRepo"
-          />
-          <button type="button" onClick={handleBrowseRepoPath}>
-            Browse Directory
-          </button>
-          <button type="button" onClick={handleRepoSave}>
-            Save Repository Path
-          </button>
-          {errorMessage && <p className="error">{errorMessage}</p>}
+      <div className="app-frame">
+        <TitleBar title={titleBarLabel} />
+        <div className="app-body">
+          <div className="startup-screen">
+            <div className="startup-card">
+              <h1>Set Repository Path</h1>
+              <p>Choose one local folder as the root for all your projects. You only need to set it once.</p>
+              <input
+                value={repoPath}
+                onChange={(event) => setRepoPathInput(event.target.value)}
+                placeholder="D:\\WritingRepo"
+              />
+              <button type="button" onClick={handleBrowseRepoPath}>
+                Browse Directory
+              </button>
+              <button type="button" onClick={handleRepoSave}>
+                Save Repository Path
+              </button>
+              {errorMessage && <p className="error">{errorMessage}</p>}
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -209,44 +222,49 @@ export default function App() {
 
   if (stage === "projectHub") {
     return (
-      <div className="startup-screen">
-        <div className="startup-card project-hub">
-          <h1>Project Hub</h1>
-          <p>Repository: {repoPath}</p>
-          <div className="create-project">
-            <input
-              value={newProjectName}
-              onChange={(event) => setNewProjectName(event.target.value)}
-              placeholder="New Project Name"
-            />
-            <button type="button" onClick={handleCreateProject}>
-              Create Project
-            </button>
-          </div>
-          <div className="project-list">
-            {projectList.length === 0 && <p>No project found. Create your first one.</p>}
-            {projectList.map((entry) => (
-              <div key={entry.path} className="project-item-row">
-                <button type="button" className="project-item" onClick={() => handleOpenProject(entry)}>
-                  <span>{entry.name}</span>
-                  <small>{entry.path}</small>
-                </button>
-                <button
-                  type="button"
-                  className="project-delete"
-                  onClick={() => {
-                    void handleDeleteProject(entry);
-                  }}
-                >
-                  Delete
+      <div className="app-frame">
+        <TitleBar title={titleBarLabel} />
+        <div className="app-body">
+          <div className="startup-screen">
+            <div className="startup-card project-hub">
+              <h1>Project Hub</h1>
+              <p>Repository: {repoPath}</p>
+              <div className="create-project">
+                <input
+                  value={newProjectName}
+                  onChange={(event) => setNewProjectName(event.target.value)}
+                  placeholder="New Project Name"
+                />
+                <button type="button" onClick={handleCreateProject}>
+                  Create Project
                 </button>
               </div>
-            ))}
+              <div className="project-list">
+                {projectList.length === 0 && <p>No project found. Create your first one.</p>}
+                {projectList.map((entry) => (
+                  <div key={entry.path} className="project-item-row">
+                    <button type="button" className="project-item" onClick={() => handleOpenProject(entry)}>
+                      <span>{entry.name}</span>
+                      <small>{entry.path}</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="project-delete"
+                      onClick={() => {
+                        void handleDeleteProject(entry);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="ghost-secondary" onClick={() => setStage("setupRepo")}>
+                Change Repository Path
+              </button>
+              {errorMessage && <p className="error">{errorMessage}</p>}
+            </div>
           </div>
-          <button type="button" className="ghost-secondary" onClick={() => setStage("setupRepo")}>
-            Change Repository Path
-          </button>
-          {errorMessage && <p className="error">{errorMessage}</p>}
         </div>
       </div>
     );
@@ -261,16 +279,24 @@ export default function App() {
 
   const handleHub = () => setStage("projectHub");
 
+  const handleSettings = () => setStage("setupRepo");
+
   return (
-    <div className="app-shell">
-      <EditorCanvas />
-      <OrbitNavigator />
-      <FloatingActionBar>
-        <FloatingActionButton icon={Download} label="Export" onClick={handleExport} />
-        <FloatingActionButton icon={Home} label="Hub" onClick={handleHub} />
-      </FloatingActionBar>
-      <SavedStatus text={saveInfo} />
-      {errorMessage && <p className="error global-error">{errorMessage}</p>}
+    <div className="app-frame">
+      <TitleBar title={titleBarLabel} />
+      <div className="app-body">
+        <div className="app-shell">
+          <EditorCanvas />
+          <OrbitNavigator />
+          <FloatingActionBar>
+            <FloatingActionButton icon={Download} label="Export" onClick={handleExport} />
+            <FloatingActionButton icon={Home} label="Hub" onClick={handleHub} />
+            <FloatingActionButton icon={Settings} label="Settings" onClick={handleSettings} />
+          </FloatingActionBar>
+          <SavedStatus text={saveInfo} />
+          {errorMessage && <p className="error global-error">{errorMessage}</p>}
+        </div>
+      </div>
     </div>
   );
 }
