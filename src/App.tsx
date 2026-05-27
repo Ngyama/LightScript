@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Download, Home, Save } from "lucide-react";
+import { Download, Home } from "lucide-react";
 import "./app.css";
 import { assertProjectInvariant, createDefaultProject } from "./domain/model";
 import { useEditorStore } from "./state/editorStore";
@@ -252,13 +252,6 @@ export default function App() {
     );
   }
 
-  const handleSave = () => {
-    if (!activeProjectPath) return;
-    void saveProject(activeProjectPath, project).then(() =>
-      setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`),
-    );
-  };
-
   const handleExport = () => {
     if (!activeProjectPath) return;
     void exportProjectTree(activeProjectPath, project).then((path) =>
@@ -273,7 +266,6 @@ export default function App() {
       <EditorCanvas />
       <OrbitNavigator />
       <FloatingActionBar>
-        <FloatingActionButton icon={Save} label="Save" onClick={handleSave} />
         <FloatingActionButton icon={Download} label="Export" onClick={handleExport} />
         <FloatingActionButton icon={Home} label="Hub" onClick={handleHub} />
       </FloatingActionBar>
