@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BlockType, DialogueBlock, NarrativeBlock, SceneBlock } from "../../domain/model";
 import { useEditorStore, useSelectedScene } from "../../state/editorStore";
+import { characterChipStyle } from "../characterPalette";
 import { createDialogueBlock, createNarrativeBlock } from "./inputStateMachine";
 import { computeSceneStats } from "./sceneStats";
 
@@ -153,6 +154,7 @@ function SpeakerChip({ value, isOpen, onToggle, registerAnchor }: SpeakerChipPro
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const empty = !value || value.trim().length === 0;
   const display = empty ? "未选" : value!.trim();
+  const colorStyle = empty ? undefined : (characterChipStyle(value) as React.CSSProperties);
   return (
     <button
       ref={(node) => {
@@ -161,9 +163,10 @@ function SpeakerChip({ value, isOpen, onToggle, registerAnchor }: SpeakerChipPro
       }}
       type="button"
       className={`speaker-chip${empty ? " is-empty" : ""}${isOpen ? " is-open" : ""}`}
+      style={colorStyle}
       onClick={() => onToggle(buttonRef.current)}
     >
-      [{display}]
+      {display}
     </button>
   );
 }

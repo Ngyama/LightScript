@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { normalizeSceneCharacters } from "../../domain/model";
 import { useEditorStore } from "../../state/editorStore";
 import type { Scene } from "../../domain/model";
+import { characterChipStyle } from "../characterPalette";
 
 interface CharacterBarProps {
   scene: Scene;
+}
+
+function rosterEquals(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 export function CharacterBar({ scene }: CharacterBarProps) {
@@ -12,6 +18,22 @@ export function CharacterBar({ scene }: CharacterBarProps) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const roster = useMemo(
+    () => normalizeSceneCharacters(scene.characters),
+    [scene.characters],
+  );
+
+  useEffect(() => {
+    setIsAdding(false);
+    setDraft("");
+  }, [scene.id]);
+
+  useEffect(() => {
+    if (!rosterEquals(roster, scene.characters)) {
+      setSceneCharacters(scene.id, roster);
+    }
+  }, [roster, scene.characters, scene.id, setSceneCharacters]);
+
   useEffect(() => {
     if (isAdding) {
       inputRef.current?.focus();
@@ -19,13 +41,13 @@ export function CharacterBar({ scene }: CharacterBarProps) {
   }, [isAdding]);
 
   const persistCharacters = (next: string[]) => {
-    setSceneCharacters(scene.id, next);
+    setSceneCharacters(scene.id, normalizeSceneCharacters(next));
   };
 
   const commitDraft = () => {
     const value = draft.trim();
-    if (value && !scene.characters.includes(value)) {
-      persistCharacters([...scene.characters, value]);
+    if (value && !roster.includes(value)) {
+      persistCharacters([...roster, value]);
     }
     setDraft("");
     setIsAdding(false);
@@ -36,21 +58,25 @@ export function CharacterBar({ scene }: CharacterBarProps) {
     setIsAdding(false);
   };
 
-  const removeCharacter = (name: string) => {
-    persistCharacters(scene.characters.filter((entry) => entry !== name));
+  const removeCharacterAt = (index: number) => {
+    persistCharacters(roster.filter((_, entryIndex) => entryIndex !== index));
   };
 
   return (
     <div className="character-bar">
-      {scene.characters.map((name) => (
-        <span key={name} className="character-chip">
+      {roster.map((name, index) => (
+        <span
+          key={`${scene.id}-${index}-${name}`}
+          className="character-chip"
+          style={characterChipStyle(name) as React.CSSProperties}
+        >
           <span className="character-chip-name">{name}</span>
           <button
             type="button"
             className="character-chip-remove"
             aria-label={`Remove ${name}`}
             title={`Remove ${name}`}
-            onClick={() => removeCharacter(name)}
+            onClick={() => removeCharacterAt(index)}
           >
             ×
           </button>

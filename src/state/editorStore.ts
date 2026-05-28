@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   assertProjectInvariant,
   createDefaultProject,
+  normalizeSceneCharacters,
   type Project,
   type Scene,
   type SceneBlock,
@@ -268,7 +269,7 @@ export const useEditorStore = create<EditorState>((set) => ({
               ? {
                   ...scene,
                   blocks,
-                  characters: sceneCharacters ?? scene.characters,
+                  characters: normalizeSceneCharacters(sceneCharacters ?? scene.characters),
                 }
               : scene,
           ),
@@ -282,7 +283,9 @@ export const useEditorStore = create<EditorState>((set) => ({
         scripts: state.project.scripts.map((script) => ({
           ...script,
           scenes: script.scenes.map((scene) =>
-            scene.id === sceneId ? { ...scene, characters } : scene,
+            scene.id === sceneId
+              ? { ...scene, characters: normalizeSceneCharacters(characters) }
+              : scene,
           ),
         })),
       }),

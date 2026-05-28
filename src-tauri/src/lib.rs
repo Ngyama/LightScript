@@ -264,6 +264,35 @@ fn export_project_tree(project_path: String, project_json: String) -> Result<Str
   Ok(export_root.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn export_scene_markdown(
+  project_path: String,
+  scene_title: String,
+  content: String,
+) -> Result<String, String> {
+  let project_dir = PathBuf::from(&project_path);
+  if !project_dir.exists() || !project_dir.is_dir() {
+    return Err(format!("project path does not exist: {project_path}"));
+  }
+
+  let exports_dir = project_dir.join("exports");
+  fs::create_dir_all(&exports_dir)
+    .map_err(|error| format!("failed to create exports dir: {error}"))?;
+
+  let timestamp = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map_err(|error| format!("failed to read system time: {error}"))?
+    .as_secs();
+
+  let safe_title = sanitize_name(&scene_title);
+  let file_name = format!("{safe_title}_{timestamp}.md");
+  let file_path = exports_dir.join(file_name);
+  fs::write(&file_path, content)
+    .map_err(|error| format!("failed to write scene markdown: {error}"))?;
+
+  Ok(file_path.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -275,7 +304,8 @@ pub fn run() {
       delete_project,
       save_project_to_path,
       load_project_from_path,
-      export_project_tree
+      export_project_tree,
+      export_scene_markdown
     ])
     .setup(|app| {
       app.handle().plugin(tauri_plugin_dialog::init())?;

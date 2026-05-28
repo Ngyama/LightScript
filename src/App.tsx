@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 import { Download, Home, Settings } from "lucide-react";
 import "./app.css";
-import { assertProjectInvariant, createDefaultProject } from "./domain/model";
+import {
+  assertProjectInvariant,
+  createDefaultProject,
+  findSceneInProject,
+  sceneToMarkdown,
+} from "./domain/model";
 import { useEditorStore } from "./state/editorStore";
 import {
   createProject,
   deleteProject,
-  exportProjectTree,
+  exportSceneMarkdown,
   getRepoPath,
   listProjects,
   loadProjectFromPath,
@@ -272,9 +277,23 @@ export default function App() {
 
   const handleExport = () => {
     if (!activeProjectPath) return;
-    void exportProjectTree(activeProjectPath, project).then((path) =>
-      setSaveInfo(`Exported to ${path}`),
-    );
+    const { selection } = useEditorStore.getState();
+    const scene = findSceneInProject(project, selection.sceneId);
+    if (!scene) {
+      setErrorMessage("No scene is currently selected.");
+      return;
+    }
+    const markdown = sceneToMarkdown(scene);
+    void exportSceneMarkdown(activeProjectPath, scene.title, markdown)
+      .then((path) => {
+        setErrorMessage(null);
+        setSaveInfo(`Exported ${scene.title}.md → ${path}`);
+      })
+      .catch((error) => {
+        setErrorMessage(
+          error instanceof Error ? error.message : "Failed to export scene as Markdown.",
+        );
+      });
   };
 
   const handleHub = () => setStage("projectHub");

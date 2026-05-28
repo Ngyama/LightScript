@@ -3,7 +3,10 @@ import {
   assertProjectInvariant,
   assertProjectReadyForExport,
   createDefaultProject,
+  normalizeSceneCharacters,
   parseProject,
+  sceneToMarkdown,
+  type Scene,
 } from "../domain/model";
 
 describe("project invariant", () => {
@@ -60,6 +63,60 @@ describe("project export readiness", () => {
       text: "嗯。",
     });
     expect(() => assertProjectReadyForExport(project)).not.toThrow();
+  });
+});
+
+describe("scene character roster", () => {
+  test("drops empty, whitespace-only, and duplicate names", () => {
+    expect(normalizeSceneCharacters([" Alice ", "", "Bob", "Alice", "  ", null, "Bob"])).toEqual([
+      "Alice",
+      "Bob",
+    ]);
+  });
+
+  test("returns empty array for non-array input", () => {
+    expect(normalizeSceneCharacters(undefined)).toEqual([]);
+    expect(normalizeSceneCharacters("Alice")).toEqual([]);
+  });
+});
+
+describe("scene markdown export", () => {
+  test("renders title, narrative paragraphs, and bolded dialogue speakers", () => {
+    const scene: Scene = {
+      id: "s1",
+      title: "Opening",
+      characters: ["Alice"],
+      blocks: [
+        { id: "n1", type: "narrative", text: "It is raining." },
+        { id: "d1", type: "dialogue", character: "Alice", text: "Hello." },
+        { id: "d2", type: "dialogue", text: "Anonymous murmur." },
+        { id: "n2", type: "narrative", text: "  " },
+        { id: "d3", type: "dialogue", character: "Bob", text: "" },
+      ],
+    };
+
+    const md = sceneToMarkdown(scene);
+
+    expect(md.startsWith("# Opening\n")).toBe(true);
+    expect(md).toContain("\nIt is raining.\n");
+    expect(md).toContain("\n**Alice**: Hello.\n");
+    expect(md).toContain("\n> Anonymous murmur.\n");
+    expect(md).not.toContain("Bob");
+    expect(md.endsWith("\n")).toBe(true);
+  });
+
+  test("trims block text and skips fully empty blocks", () => {
+    const scene: Scene = {
+      id: "s2",
+      title: "Quiet",
+      characters: [],
+      blocks: [
+        { id: "n1", type: "narrative", text: "  margin space   " },
+        { id: "n2", type: "narrative", text: "" },
+      ],
+    };
+
+    expect(sceneToMarkdown(scene)).toBe("# Quiet\n\nmargin space\n");
   });
 });
 

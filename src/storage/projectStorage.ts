@@ -139,3 +139,21 @@ export async function exportProjectTree(projectPath: string, project: Project): 
   localStorage.setItem(`${localProjectKey(projectPath)}.exportPreview`, JSON.stringify(entries, null, 2));
   return "browser-localStorage-preview";
 }
+
+export async function exportSceneMarkdown(
+  projectPath: string,
+  sceneTitle: string,
+  content: string,
+): Promise<string> {
+  if (isTauriRuntime()) {
+    return invoke<string>("export_scene_markdown", {
+      projectPath,
+      sceneTitle,
+      content,
+    });
+  }
+
+  const key = `${localProjectKey(projectPath)}.sceneExport.${encodeURIComponent(sceneTitle)}`;
+  localStorage.setItem(key, content);
+  return `browser-localStorage-preview://${sceneTitle}.md`;
+}

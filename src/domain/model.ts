@@ -147,12 +147,66 @@ export function assertProjectReadyForExport(project: Project): void {
   }
 }
 
+export function normalizeSceneCharacters(characters: unknown): string[] {
+  if (!Array.isArray(characters)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of characters) {
+    if (typeof raw !== "string") {
+      continue;
+    }
+    const value = raw.trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
 export function toDialogueText(character: string | undefined, text: string): string {
   const speaker = character?.trim();
   if (!speaker) {
     return `“${text}”`;
   }
   return `${speaker}：“${text}”`;
+}
+
+export function sceneToMarkdown(scene: Scene): string {
+  const lines: string[] = [`# ${scene.title}`];
+
+  for (const block of scene.blocks) {
+    if (block.type === "narrative") {
+      const text = block.text.trim();
+      if (!text) continue;
+      lines.push("", text);
+      continue;
+    }
+
+    const text = block.text.trim();
+    if (!text) continue;
+    const speaker = block.character?.trim();
+    lines.push("");
+    if (speaker) {
+      lines.push(`**${speaker}**: ${text}`);
+    } else {
+      lines.push(`> ${text}`);
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+export function findSceneInProject(project: Project, sceneId: string | undefined): Scene | undefined {
+  if (!sceneId) return undefined;
+  for (const script of project.scripts) {
+    const scene = script.scenes.find((entry) => entry.id === sceneId);
+    if (scene) return scene;
+  }
+  return undefined;
 }
 
 interface LegacyBlock {
@@ -221,9 +275,7 @@ export function parseProject(raw: string): Project {
   const parsed = JSON.parse(raw) as Project;
   for (const script of parsed.scripts ?? []) {
     for (const scene of script.scenes ?? []) {
-      if (!Array.isArray(scene.characters)) {
-        scene.characters = [];
-      }
+      scene.characters = normalizeSceneCharacters(scene.characters);
       scene.blocks = migrateLegacyBlocks(scene.blocks);
     }
   }
