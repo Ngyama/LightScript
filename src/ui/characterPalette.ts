@@ -2,11 +2,20 @@ const FALLBACK_NAME = "anonymous";
 
 function hashName(name: string): number {
   const source = name.trim().length > 0 ? name.trim() : FALLBACK_NAME;
-  let hash = 5381;
+  // FNV-1a 32-bit
+  let hash = 0x811c9dc5 | 0;
   for (let i = 0; i < source.length; i++) {
-    hash = ((hash << 5) + hash + source.charCodeAt(i)) | 0;
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
   }
-  return Math.abs(hash);
+  // fmix32 avalanche (MurmurHash3) — ensures short inputs scatter across all 32 bits,
+  // otherwise short names (e.g. "A"/"B"/"张三"/"主角") cluster into a narrow hue range.
+  hash ^= hash >>> 16;
+  hash = Math.imul(hash, 0x85ebca6b);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 0xc2b2ae35);
+  hash ^= hash >>> 16;
+  return hash >>> 0;
 }
 
 export interface CharacterChipColors {
