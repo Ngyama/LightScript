@@ -1,7 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Project } from "../domain/model";
 import { parseProject } from "../domain/model";
+
+export type ExportFormat = "md" | "txt" | "docx";
+
+export interface ExportFormatInfo {
+  format: ExportFormat;
+  label: string;
+  extension: string;
+  filterName: string;
+}
+
+export const EXPORT_FORMATS: ExportFormatInfo[] = [
+  { format: "md", label: "Markdown (.md)", extension: "md", filterName: "Markdown" },
+  { format: "txt", label: "Plain Text (.txt)", extension: "txt", filterName: "Text" },
+  { format: "docx", label: "Word Document (.docx)", extension: "docx", filterName: "Word Document" },
+];
 
 const LOCAL_STORAGE_KEY = "lightscript.project";
 
@@ -156,4 +171,60 @@ export async function exportSceneMarkdown(
   const key = `${localProjectKey(projectPath)}.sceneExport.${encodeURIComponent(sceneTitle)}`;
   localStorage.setItem(key, content);
   return `browser-localStorage-preview://${sceneTitle}.md`;
+}
+
+function sanitizeDefaultExportName(name: string): string {
+  // Mirror src-tauri/sanitize_name's invalid set so the suggested filename
+  // doesn't get rejected by Windows.
+  const trimmed = name.trim();
+  if (!trimmed) return "scene";
+  return trimmed
+    .split("")
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      if (code < 0x20 || '<>:"/\\|?*'.includes(char)) return "_";
+      return char;
+    })
+    .join("")
+    .replace(/\.+$/u, "");
+}
+
+export async function pickExportSavePath(
+  defaultName: string,
+  format: ExportFormat,
+): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  const info = EXPORT_FORMATS.find((entry) => entry.format === format);
+  if (!info) return null;
+
+  const safeName = sanitizeDefaultExportName(defaultName) || "scene";
+  const result = await save({
+    defaultPath: `${safeName}.${info.extension}`,
+    filters: [{ name: info.filterName, extensions: [info.extension] }],
+  });
+  return typeof result === "string" ? result : null;
+}
+
+export async function writeTextExport(
+  targetPath: string,
+  content: string,
+): Promise<string> {
+  if (isTauriRuntime()) {
+    return invoke<string>("write_text_export", { targetPath, content });
+  }
+  const key = `${LOCAL_STORAGE_KEY}.exportPreview:${encodeURIComponent(targetPath)}`;
+  localStorage.setItem(key, content);
+  return `browser-localStorage-preview://${targetPath}`;
+}
+
+export async function writeDocxExport(
+  targetPath: string,
+  sceneJson: string,
+): Promise<string> {
+  if (isTauriRuntime()) {
+    return invoke<string>("write_docx_export", { targetPath, sceneJson });
+  }
+  const key = `${LOCAL_STORAGE_KEY}.exportPreview:${encodeURIComponent(targetPath)}`;
+  localStorage.setItem(key, sceneJson);
+  return `browser-localStorage-preview://${targetPath}`;
 }

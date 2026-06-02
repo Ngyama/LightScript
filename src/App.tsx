@@ -5,13 +5,11 @@ import {
   assertProjectInvariant,
   createDefaultProject,
   findSceneInProject,
-  sceneToMarkdown,
 } from "./domain/model";
 import { useEditorStore } from "./state/editorStore";
 import {
   createProject,
   deleteProject,
-  exportSceneMarkdown,
   getRepoPath,
   listProjects,
   loadProjectFromPath,
@@ -20,7 +18,9 @@ import {
   setRepoPath,
   type ProjectSummary,
 } from "./storage/projectStorage";
+import type { Scene } from "./domain/model";
 import { EditorCanvas } from "./ui/canvas/EditorCanvas";
+import { ExportDialog } from "./ui/floating/ExportDialog";
 import { FloatingActionBar } from "./ui/floating/FloatingActionBar";
 import { FloatingActionButton } from "./ui/floating/FloatingActionButton";
 import { SavedStatus } from "./ui/floating/SavedStatus";
@@ -37,6 +37,7 @@ export default function App() {
 
   const [saveInfo, setSaveInfo] = useState("Not saved yet");
   const [stage, setStage] = useState<AppStage>("loading");
+  const [exportTargetScene, setExportTargetScene] = useState<Scene | null>(null);
   const [repoPath, setRepoPathInput] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   const [projectList, setProjectList] = useState<ProjectSummary[]>([]);
@@ -283,17 +284,9 @@ export default function App() {
       setErrorMessage("No scene is currently selected.");
       return;
     }
-    const markdown = sceneToMarkdown(scene);
-    void exportSceneMarkdown(activeProjectPath, scene.title, markdown)
-      .then((path) => {
-        setErrorMessage(null);
-        setSaveInfo(`Exported ${scene.title}.md → ${path}`);
-      })
-      .catch((error) => {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Failed to export scene as Markdown.",
-        );
-      });
+    // Snapshot the scene at open time so the dialog isn't affected if the
+    // user navigates around (or edits) while it's open.
+    setExportTargetScene(scene);
   };
 
   const handleHub = () => setStage("projectHub");
@@ -314,6 +307,17 @@ export default function App() {
           </FloatingActionBar>
           <SavedStatus text={saveInfo} />
           {errorMessage && <p className="error global-error">{errorMessage}</p>}
+          {exportTargetScene && (
+            <ExportDialog
+              scene={exportTargetScene}
+              onClose={() => setExportTargetScene(null)}
+              onComplete={(savedPath, format) => {
+                setErrorMessage(null);
+                setSaveInfo(`Exported as .${format} → ${savedPath}`);
+              }}
+              onError={(message) => setErrorMessage(message)}
+            />
+          )}
         </div>
       </div>
     </div>

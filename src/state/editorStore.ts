@@ -37,6 +37,7 @@ type EditorState = {
   renameScene: (sceneId: string, title: string) => void;
   setSceneBlocks: (sceneId: string, blocks: SceneBlock[], sceneCharacters?: string[]) => void;
   setSceneCharacters: (sceneId: string, characters: string[]) => void;
+  renameSceneCharacter: (sceneId: string, oldName: string, newName: string) => boolean;
 };
 
 function findScene(project: Project, sceneId?: string): Scene | undefined {
@@ -290,6 +291,42 @@ export const useEditorStore = create<EditorState>((set) => ({
         })),
       }),
     })),
+  renameSceneCharacter: (sceneId, oldName, newName) => {
+    const before = oldName.trim();
+    const after = newName.trim();
+    if (!before || !after) return false;
+    if (before === after) return true;
+    let applied = false;
+    set((state) => {
+      const updatedScripts = state.project.scripts.map((script) => ({
+        ...script,
+        scenes: script.scenes.map((scene) => {
+          if (scene.id !== sceneId) return scene;
+          // Skip if old name isn't present, or new name collides with another
+          // existing roster entry (collisions would be silently merged by the
+          // normalizer; refuse instead so the user can pick a unique name).
+          const hasOld = scene.characters.includes(before);
+          const collides =
+            scene.characters.some((entry) => entry === after) && after !== before;
+          if (!hasOld || collides) return scene;
+          const nextCharacters = normalizeSceneCharacters(
+            scene.characters.map((entry) => (entry === before ? after : entry)),
+          );
+          const nextBlocks: SceneBlock[] = scene.blocks.map((block) => {
+            if (block.type === "dialogue" && block.character === before) {
+              return { ...block, character: after };
+            }
+            return block;
+          });
+          applied = true;
+          return { ...scene, characters: nextCharacters, blocks: nextBlocks };
+        }),
+      }));
+      if (!applied) return state;
+      return { project: withInvariant({ ...state.project, scripts: updatedScripts }) };
+    });
+    return applied;
+  },
 }));
 
 export function useSelectedScene(): Scene | undefined {

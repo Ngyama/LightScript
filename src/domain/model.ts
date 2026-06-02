@@ -175,6 +175,30 @@ export function toDialogueText(character: string | undefined, text: string): str
   return `${speaker}：“${text}”`;
 }
 
+export function sceneToPlainText(scene: Scene): string {
+  const lines: string[] = [scene.title];
+
+  for (const block of scene.blocks) {
+    const text = block.text.trim();
+    if (!text) continue;
+
+    if (block.type === "narrative") {
+      lines.push("", text);
+      continue;
+    }
+
+    const speaker = block.character?.trim();
+    lines.push("");
+    if (speaker) {
+      lines.push(`${speaker}：“${text}”`);
+    } else {
+      lines.push(`“${text}”`);
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 export function sceneToMarkdown(scene: Scene): string {
   const lines: string[] = [`# ${scene.title}`];
 

@@ -306,6 +306,50 @@ body {
   line-height: 1.3;
 }
 
+.character-chip-name--button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: text;
+  /* Double-click should select the text inside, not trigger word-select on
+     neighbouring elements. */
+  user-select: text;
+}
+
+.character-chip-name--button:focus-visible {
+  outline: 1px dashed currentColor;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.character-chip--editing {
+  /* Keep the chip background/border colour from the speaker palette but tighten
+     padding so the embedded input fits cleanly without resizing the row. */
+  padding: 2px 6px;
+}
+
+.character-chip-input--rename {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  width: auto;
+  min-width: 48px;
+  max-width: 200px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--chip-fg, #1f1f1f);
+  outline: none;
+  /* Field-sizing lets the input shrink/grow to the typed text on modern Chromium,
+     matching the chip pill width. Older engines fall back to min-width. */
+  field-sizing: content;
+}
+
 .character-chip-remove {
   width: 16px;
   height: 16px;
@@ -1095,6 +1139,165 @@ textarea.block-input,
 .muted {
   color: #797979;
   font-size: 13px;
+}
+
+/* ============================================================
+   Export dialog — overlay modal for choosing format + destination
+   ============================================================ */
+
+.export-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 20, 0.32);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 80;
+}
+
+.export-dialog {
+  width: min(440px, calc(100vw - 64px));
+  background: #ffffff;
+  border: 1px solid rgba(31, 31, 31, 0.10);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+  padding: 22px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: #1f1f1f;
+}
+
+.export-dialog-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.export-dialog-subtitle {
+  margin: -6px 0 0;
+  font-size: 13px;
+  color: rgba(31, 31, 31, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.export-dialog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.export-dialog-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(31, 31, 31, 0.5);
+}
+
+.export-format-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.export-format-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13.5px;
+  transition: background 140ms ease;
+}
+
+.export-format-option:hover {
+  background: rgba(31, 31, 31, 0.04);
+}
+
+.export-format-option input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.export-path-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.export-path-input {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid rgba(31, 31, 31, 0.18);
+  background: #fafafa;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: rgba(31, 31, 31, 0.85);
+  outline: none;
+  /* Path strings can be long; show end (filename) when truncated. */
+  direction: ltr;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.export-path-input::placeholder {
+  color: rgba(31, 31, 31, 0.4);
+}
+
+.export-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.export-dialog-secondary,
+.export-dialog-primary {
+  appearance: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.export-dialog-secondary {
+  border: 1px solid rgba(31, 31, 31, 0.18);
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.export-dialog-secondary:hover:not(:disabled) {
+  border-color: rgba(31, 31, 31, 0.4);
+  background: rgba(31, 31, 31, 0.03);
+}
+
+.export-dialog-primary {
+  border: 1px solid #1f1f1f;
+  background: #1f1f1f;
+  color: #ffffff;
+}
+
+.export-dialog-primary:hover:not(:disabled) {
+  background: #2f2f2f;
+  border-color: #2f2f2f;
+}
+
+.export-dialog-secondary:disabled,
+.export-dialog-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ============================================================
