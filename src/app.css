@@ -1121,9 +1121,20 @@ textarea.block-input,
 .scene-orbit-navigator-inner {
   flex: 1;
   min-height: 0;
+  /* min-width: 0 stops <input>'s intrinsic min-content from pushing this
+     flex item wider than the 220px sidebar. */
+  min-width: 0;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 10px;
+}
+
+.scene-orbit-header,
+.scene-orbit-track,
+.scene-orbit-footer {
+  /* Grid items default to min-content sizing; force them to honor the
+     container width so descendant <input>s can shrink. */
+  min-width: 0;
 }
 
 .scene-orbit-header {
@@ -1214,10 +1225,8 @@ textarea.block-input,
   letter-spacing: 0.10em;
   text-transform: uppercase;
   color: rgba(31, 31, 31, 0.35);
-  padding: 10px 10px 4px;
+  padding: 6px 10px 4px;
   cursor: default;
-  border-top: 1px dashed rgba(31, 31, 31, 0.10);
-  margin-top: 4px;
 }
 
 .scene-orbit-item--distance-0 {
@@ -1300,4 +1309,225 @@ textarea.block-input,
   color: #1f1f1f;
   border-color: rgba(31, 31, 31, 0.4);
   background: rgba(31, 31, 31, 0.03);
+}
+
+/* ---- Header script row: title + more button + inline edit ---- */
+
+.scene-orbit-script-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scene-orbit-script-row .scene-orbit-script-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.scene-orbit-script-more {
+  appearance: none;
+  border: none;
+  background: transparent;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(31, 31, 31, 0.45);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.55;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.scene-orbit-script-more:hover {
+  opacity: 1;
+  color: #1f1f1f;
+  background: rgba(31, 31, 31, 0.06);
+}
+
+.scene-orbit-script-title-input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(31, 31, 31, 0.75);
+  padding: 2px 6px;
+  border: 1px solid rgba(31, 31, 31, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 4px;
+  outline: none;
+}
+
+.scene-orbit-script-title-input:focus {
+  border-color: rgba(31, 31, 31, 0.45);
+  box-shadow: 0 0 0 2px rgba(80, 90, 120, 0.16);
+}
+
+/* ---- Track rows: wrap a main item plus a hover-revealed more button ---- */
+
+.scene-orbit-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.scene-orbit-row > .scene-orbit-item {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Restore the divider visuals at the row level so the dashed border spans
+   the full row width (including space behind the more button). */
+.scene-orbit-row--script {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed rgba(31, 31, 31, 0.10);
+}
+
+.scene-orbit-item-more {
+  appearance: none;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(31, 31, 31, 0.5);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+  z-index: 1;
+}
+
+.scene-orbit-row:hover .scene-orbit-item-more {
+  opacity: 0.55;
+  pointer-events: auto;
+}
+
+.scene-orbit-item-more:hover {
+  opacity: 1;
+  color: #1f1f1f;
+  background: rgba(31, 31, 31, 0.08);
+}
+
+/* Inline edit input — visually replaces the item it stands in for. */
+.scene-orbit-item-input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(31, 31, 31, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+  color: #1f1f1f;
+  outline: none;
+}
+
+.scene-orbit-item-input--scene {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.scene-orbit-item-input--script {
+  font-size: 10px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(31, 31, 31, 0.7);
+}
+
+/* Guard: never apply selected-scene orbit chrome to rename inputs. */
+.scene-orbit-item-input::before {
+  content: none;
+  display: none;
+}
+
+.scene-orbit-item-input.scene-orbit-item--selected,
+.scene-orbit-item-input.scene-orbit-item--preview-center {
+  transform: none;
+  font-weight: 400;
+  font-size: 13px;
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.scene-orbit-item-input:focus {
+  border-color: rgba(31, 31, 31, 0.45);
+  box-shadow: 0 0 0 2px rgba(80, 90, 120, 0.16);
+}
+
+/* ---- Context menu (portal to body) ---- */
+
+.scene-orbit-context-overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  z-index: 49;
+}
+
+.scene-orbit-context-menu {
+  position: fixed;
+  min-width: 180px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  z-index: 55;
+  list-style: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.scene-orbit-context-menu li {
+  list-style: none;
+}
+
+.scene-orbit-context-menu button {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: #1f1f1f;
+}
+
+.scene-orbit-context-menu button:hover {
+  background: rgba(31, 31, 31, 0.06);
+}
+
+.scene-orbit-context-menu button.is-danger {
+  color: #a40000;
+}
+
+.scene-orbit-context-menu button.is-danger:hover {
+  background: #fde8e8;
 }
