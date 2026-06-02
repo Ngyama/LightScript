@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Download, Home, Settings } from "lucide-react";
 import "./app.css";
 import {
@@ -27,7 +27,7 @@ import { SavedStatus } from "./ui/floating/SavedStatus";
 import { OrbitNavigator } from "./ui/navigation/OrbitNavigator";
 import { TitleBar } from "./ui/titlebar/TitleBar";
 
-type AppStage = "loading" | "setupRepo" | "projectHub" | "editor";
+type AppStage = "splash" | "setupRepo" | "projectHub" | "editor";
 
 export default function App() {
   const project = useEditorStore((state) => state.project);
@@ -36,42 +36,35 @@ export default function App() {
   const setHydrated = useEditorStore((state) => state.setHydrated);
 
   const [saveInfo, setSaveInfo] = useState("Not saved yet");
-  const [stage, setStage] = useState<AppStage>("loading");
+  const [stage, setStage] = useState<AppStage>("splash");
   const [exportTargetScene, setExportTargetScene] = useState<Scene | null>(null);
   const [repoPath, setRepoPathInput] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [projectList, setProjectList] = useState<ProjectSummary[]>([]);
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
-  const [loadingMessage, setLoadingMessage] = useState("Initializing...");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const newProjectInputRef = useRef<HTMLInputElement>(null);
 
+  // Bootstrap pre-loads repo path + project list in the background so the
+  // hub can render instantly when the user clicks through from the splash.
+  // The stage stays at "splash" until the user explicitly proceeds.
   useEffect(() => {
     let cancelled = false;
     async function bootstrap() {
       try {
         const savedRepoPath = await getRepoPath();
-        if (cancelled) {
-          return;
-        }
-
-        if (!savedRepoPath) {
-          setStage("setupRepo");
-          setLoadingMessage("Set your repository path first.");
-        } else {
+        if (cancelled) return;
+        if (savedRepoPath) {
           setRepoPathInput(savedRepoPath);
           const projects = await listProjects();
-          if (cancelled) {
-            return;
-          }
+          if (cancelled) return;
           setProjectList(projects);
-          setStage("projectHub");
-          setLoadingMessage("Select or create a project.");
         }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : "Failed to initialize app.");
-        setStage("setupRepo");
       } finally {
-        setHydrated(true);
+        if (!cancelled) setHydrated(true);
       }
     }
     void bootstrap();
@@ -79,6 +72,13 @@ export default function App() {
       cancelled = true;
     };
   }, [setHydrated]);
+
+  useEffect(() => {
+    if (isCreatingProject) {
+      newProjectInputRef.current?.focus();
+      newProjectInputRef.current?.select();
+    }
+  }, [isCreatingProject]);
 
   useEffect(() => {
     if (!isHydrated || stage !== "editor" || !activeProjectPath) {
@@ -174,24 +174,50 @@ export default function App() {
       const summary = await createProject(trimmedName, created);
       await refreshProjectList();
       setNewProjectName("");
+      setIsCreatingProject(false);
       await handleOpenProject(summary);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to create project.");
     }
   };
 
+  const handleSplashEnterHub = async () => {
+    setErrorMessage(null);
+    // If repo isn't set yet, route to setup; once saved that flow auto-advances
+    // back to the hub.
+    if (!repoPath.trim()) {
+      setStage("setupRepo");
+      return;
+    }
+    // Refresh in case projects were created/deleted out-of-band since bootstrap.
+    try {
+      await refreshProjectList();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to list projects.");
+    }
+    setStage("projectHub");
+  };
+
   const titleBarLabel = stage === "editor" ? project.title || "Untitled" : "LightScript";
 
-  if (stage === "loading") {
+  if (stage === "splash") {
     return (
       <div className="app-frame">
         <TitleBar title={titleBarLabel} />
         <div className="app-body">
-          <div className="startup-screen">
-            <div className="startup-card">
-              <h1>LightScript</h1>
-              <p>{loadingMessage}</p>
-            </div>
+          <div className="splash-screen">
+            <h1 className="splash-title">Light Script</h1>
+            <button
+              type="button"
+              className="splash-cta"
+              onClick={() => {
+                void handleSplashEnterHub();
+              }}
+              disabled={!isHydrated}
+            >
+              Project Hub
+            </button>
+            {errorMessage && <p className="error splash-error">{errorMessage}</p>}
           </div>
         </div>
       </div>
@@ -227,49 +253,110 @@ export default function App() {
   }
 
   if (stage === "projectHub") {
+    const startCreateTile = () => {
+      setNewProjectName("");
+      setIsCreatingProject(true);
+    };
+    const cancelCreateTile = () => {
+      setNewProjectName("");
+      setIsCreatingProject(false);
+    };
+
     return (
       <div className="app-frame">
         <TitleBar title={titleBarLabel} />
         <div className="app-body">
-          <div className="startup-screen">
-            <div className="startup-card project-hub">
-              <h1>Project Hub</h1>
-              <p>Repository: {repoPath}</p>
-              <div className="create-project">
-                <input
-                  value={newProjectName}
-                  onChange={(event) => setNewProjectName(event.target.value)}
-                  placeholder="New Project Name"
-                />
-                <button type="button" onClick={handleCreateProject}>
-                  Create Project
-                </button>
+          <div className="hub-screen">
+            <div className="hub-topbar">
+              <button
+                type="button"
+                className="hub-topbar-button"
+                onClick={handleBrowseRepoPath}
+                title="Browse for a different repository folder"
+              >
+                Browse Directory
+              </button>
+              <div className="hub-topbar-path" title={repoPath}>
+                {repoPath || "No repository selected"}
               </div>
-              <div className="project-list">
-                {projectList.length === 0 && <p>No project found. Create your first one.</p>}
+            </div>
+
+            <div className="hub-content">
+              <div className="hub-grid">
+                {isCreatingProject ? (
+                  <div className="hub-tile hub-tile--new is-editing">
+                    <input
+                      ref={newProjectInputRef}
+                      className="hub-tile-new-input"
+                      value={newProjectName}
+                      placeholder="Project name"
+                      onChange={(event) => setNewProjectName(event.target.value)}
+                      onBlur={() => {
+                        if (newProjectName.trim()) {
+                          void handleCreateProject();
+                        } else {
+                          cancelCreateTile();
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleCreateProject();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelCreateTile();
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="hub-tile hub-tile--new"
+                    onClick={startCreateTile}
+                    title="Create a new project"
+                  >
+                    <span className="hub-tile-new-plus" aria-hidden="true">+</span>
+                    <span className="hub-tile-new-label">New Project</span>
+                  </button>
+                )}
                 {projectList.map((entry) => (
-                  <div key={entry.path} className="project-item-row">
-                    <button type="button" className="project-item" onClick={() => handleOpenProject(entry)}>
-                      <span>{entry.name}</span>
-                      <small>{entry.path}</small>
+                  <div key={entry.path} className="hub-tile-wrapper">
+                    <button
+                      type="button"
+                      className="hub-tile"
+                      onClick={() => {
+                        void handleOpenProject(entry);
+                      }}
+                      title={entry.path}
+                    >
+                      <span className="hub-tile-name">{entry.name}</span>
+                      <span className="hub-tile-path">{entry.path}</span>
                     </button>
                     <button
                       type="button"
-                      className="project-delete"
-                      onClick={() => {
+                      className="hub-tile-delete"
+                      aria-label={`Delete ${entry.name}`}
+                      title={`Delete ${entry.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
                         void handleDeleteProject(entry);
                       }}
                     >
-                      Delete
+                      ×
                     </button>
                   </div>
                 ))}
               </div>
-              <button type="button" className="ghost-secondary" onClick={() => setStage("setupRepo")}>
-                Change Repository Path
-              </button>
-              {errorMessage && <p className="error">{errorMessage}</p>}
+
+              {projectList.length === 0 && !isCreatingProject && (
+                <p className="hub-empty-hint">
+                  No project yet. Click + above to create your first one.
+                </p>
+              )}
             </div>
+
+            {errorMessage && <p className="error hub-error">{errorMessage}</p>}
           </div>
         </div>
       </div>
