@@ -222,7 +222,8 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
-  padding: 72px 48px 56px;
+  /* left padding reserves room for the always-visible Scene Orbit rail */
+  padding: 72px 48px 56px 240px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1094,4 +1095,209 @@ textarea.block-input,
 .muted {
   color: #797979;
   font-size: 13px;
+}
+
+/* ============================================================
+   Scene Orbit Navigator — always-visible left rail (timeline)
+   Supersedes the old `.orbit-navigator` hover-expand panel.
+   Legacy `.orbit-*` and `.tree-*` styles above are kept intact
+   for easy rollback but are no longer rendered.
+   ============================================================ */
+
+.scene-orbit-navigator {
+  position: fixed;
+  top: 34px;
+  left: 0;
+  bottom: 0;
+  width: 220px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 14px 14px 18px;
+  background: transparent;
+  user-select: none;
+}
+
+.scene-orbit-navigator-inner {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 10px;
+}
+
+.scene-orbit-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 2px 10px;
+  border-bottom: 1px solid rgba(31, 31, 31, 0.06);
+}
+
+.scene-orbit-project-title {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #1f1f1f;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 140ms ease;
+}
+
+.scene-orbit-project-title:hover {
+  background: rgba(31, 31, 31, 0.05);
+}
+
+.scene-orbit-script-title {
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(31, 31, 31, 0.40);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scene-orbit-track {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 0;
+}
+
+.scene-orbit-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: rgba(31, 31, 31, 0.85);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+  display: block;
+  transform-origin: left center;
+  transition:
+    color 180ms ease,
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    font-size 200ms ease,
+    background 160ms ease;
+}
+
+.scene-orbit-item--scene {
+  font-size: 13px;
+}
+
+.scene-orbit-item--script {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(31, 31, 31, 0.35);
+  padding: 10px 10px 4px;
+  cursor: default;
+  border-top: 1px dashed rgba(31, 31, 31, 0.10);
+  margin-top: 4px;
+}
+
+.scene-orbit-item--distance-0 {
+  opacity: 1;
+}
+
+.scene-orbit-item--distance-1 {
+  opacity: 0.78;
+}
+
+.scene-orbit-item--distance-2 {
+  opacity: 0.55;
+  font-size: 12px;
+}
+
+.scene-orbit-item--distance-3 {
+  opacity: 0.36;
+  font-size: 11.5px;
+}
+
+.scene-orbit-item--distance-far {
+  opacity: 0.18;
+  font-size: 11px;
+}
+
+.scene-orbit-item--scene:hover {
+  background: rgba(31, 31, 31, 0.04);
+  color: #1f1f1f;
+}
+
+/* Preview center: subtle focus that does NOT compete with the real selection */
+.scene-orbit-item--preview-center.scene-orbit-item--scene {
+  color: #2a2a2a;
+}
+
+/* Real selected scene: strong visual anchor */
+.scene-orbit-item--selected.scene-orbit-item--scene {
+  color: #111;
+  font-weight: 700;
+  font-size: 15px;
+  transform: scale(1.04);
+  background: rgba(31, 31, 31, 0.04);
+  opacity: 1;
+}
+
+.scene-orbit-item--selected.scene-orbit-item--scene::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: #111;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.scene-orbit-footer {
+  display: flex;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(31, 31, 31, 0.06);
+}
+
+.scene-orbit-action {
+  flex: 1;
+  appearance: none;
+  border: 1px dashed rgba(31, 31, 31, 0.18);
+  background: transparent;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(31, 31, 31, 0.6);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.scene-orbit-action:hover {
+  color: #1f1f1f;
+  border-color: rgba(31, 31, 31, 0.4);
+  background: rgba(31, 31, 31, 0.03);
 }
