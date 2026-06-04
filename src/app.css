@@ -47,6 +47,115 @@ body {
   overflow: hidden;
 }
 
+/* ============================================================
+   Stage transitions (splash <-> hub <-> editor)
+   ============================================================ */
+
+.stage-stack {
+  position: absolute;
+  inset: 0;
+}
+
+.stage-layer {
+  position: absolute;
+  inset: 0;
+  will-change: transform, opacity;
+}
+
+/* The outgoing layer should not intercept clicks while it animates away. */
+.stage-exit {
+  pointer-events: none;
+}
+
+.stage-enter.stage-forward {
+  animation: stage-enter-forward 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stage-exit.stage-forward {
+  animation: stage-exit-forward 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stage-enter.stage-backward {
+  animation: stage-enter-backward 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stage-exit.stage-backward {
+  animation: stage-exit-backward 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes stage-enter-forward {
+  from {
+    opacity: 0;
+    transform: translateX(28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes stage-exit-forward {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-28px) scale(0.985);
+  }
+}
+
+@keyframes stage-enter-backward {
+  from {
+    opacity: 0;
+    transform: translateX(-28px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes stage-exit-backward {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(28px) scale(0.985);
+  }
+}
+
+@keyframes stage-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes stage-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-enter.stage-forward,
+  .stage-enter.stage-backward {
+    animation: stage-fade-in 180ms ease both;
+  }
+  .stage-exit.stage-forward,
+  .stage-exit.stage-backward {
+    animation: stage-fade-out 180ms ease both;
+  }
+}
+
 .title-bar {
   flex: none;
   height: 34px;
@@ -514,363 +623,6 @@ body {
 }
 
 /* ============================================================
-   Orbit navigator (left) — collapsed rail / hover-expanded panel
-   ============================================================ */
-
-.editor-blur-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(251, 251, 250, 0.30);
-  backdrop-filter: blur(6px) saturate(120%);
-  -webkit-backdrop-filter: blur(6px) saturate(120%);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  z-index: 35;
-}
-
-.editor-blur-overlay.is-active {
-  opacity: 1;
-}
-
-.orbit-navigator {
-  position: fixed;
-  top: 96px;
-  left: 0;
-  bottom: 56px;
-  width: 60px;
-  z-index: 40;
-  display: flex;
-  align-items: flex-start;
-  padding-left: 14px;
-  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.orbit-navigator.is-expanded {
-  width: 268px;
-}
-
-.orbit-panel {
-  position: relative;
-  width: 34px;
-  min-height: 220px;
-  max-height: 100%;
-  border-radius: 18px;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  overflow: visible;
-  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.orbit-panel.is-expanded {
-  width: 240px;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-.orbit-collapsed-layer {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  justify-content: center;
-  pointer-events: auto;
-  opacity: 1;
-  transition: opacity 160ms ease;
-}
-
-.orbit-panel.is-expanded .orbit-collapsed-layer {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.orbit-collapsed-rail {
-  width: 34px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 14px;
-  gap: 12px;
-}
-
-.orbit-dot {
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(31, 31, 31, 0.28);
-  background: transparent;
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
-}
-
-.orbit-dot:hover {
-  border-color: rgba(31, 31, 31, 0.55);
-  transform: scale(1.15);
-}
-
-.orbit-dot.is-active {
-  background: rgba(80, 90, 120, 0.55);
-  border-color: rgba(80, 90, 120, 0.55);
-}
-
-.orbit-overflow {
-  font-size: 10px;
-  color: rgba(31, 31, 31, 0.4);
-  user-select: none;
-}
-
-.orbit-expanded-content {
-  position: absolute;
-  inset: 0;
-  left: -8px;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 180ms ease,
-    left 200ms cubic-bezier(0.22, 1, 0.36, 1);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 10px 12px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.orbit-panel.is-expanded .orbit-expanded-content {
-  opacity: 1;
-  pointer-events: auto;
-  left: 0;
-}
-
-.orbit-expanded-content::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
-}
-
-/* ============================================================
-   Structure tree — embedded inside orbit-expanded-content
-   ============================================================ */
-
-.tree {
-  padding: 4px 2px;
-}
-
-.tree ul {
-  list-style: none;
-  margin: 0;
-  padding-left: 10px;
-}
-
-.tree-root {
-  padding-left: 0 !important;
-}
-
-.tree-row {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  margin: 2px 0;
-  min-width: 0;
-}
-
-.tree-node {
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 4px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #1f1f1f;
-  font: inherit;
-  font-size: 13.5px;
-  line-height: 1.45;
-  flex: 1;
-  min-width: 0;
-  word-break: break-word;
-  white-space: normal;
-}
-
-.tree-node:hover {
-  background: rgba(31, 31, 31, 0.05);
-}
-
-.tree-node.is-active {
-  background: rgba(80, 90, 120, 0.16);
-  font-weight: 600;
-  color: #1f1f1f;
-}
-
-.tree-node.is-static {
-  cursor: default;
-}
-
-.tree-node.is-static:hover {
-  background: transparent;
-}
-
-.tree-node.tree-project {
-  font-weight: 700;
-  color: rgba(31, 31, 31, 0.55);
-  letter-spacing: 0.02em;
-  margin-bottom: 6px;
-}
-
-.tree-node.tree-script {
-  font-weight: 600;
-}
-
-.tree-node.tree-script.is-active {
-  background: rgba(80, 90, 120, 0.16);
-  color: #1f1f1f;
-}
-
-.tree-node.tree-scene {
-  font-size: 13px;
-}
-
-.tree-row-add {
-  flex: 0 0 auto;
-  margin-left: auto;
-  border: 1px solid transparent;
-  background: transparent;
-  color: rgba(31, 31, 31, 0.45);
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font: inherit;
-  line-height: 1;
-  padding: 0;
-  transition:
-    background 140ms ease,
-    color 140ms ease,
-    border-color 140ms ease;
-}
-
-.tree-row-add svg {
-  display: block;
-}
-
-.tree-row-add--scene {
-  width: 22px;
-  height: 22px;
-}
-
-.tree-row-add--script {
-  width: 24px;
-  height: 24px;
-  border-color: rgba(31, 31, 31, 0.20);
-  border-style: dashed;
-  color: rgba(31, 31, 31, 0.6);
-}
-
-.tree-row-add:hover {
-  background: rgba(31, 31, 31, 0.06);
-  color: rgba(31, 31, 31, 0.85);
-}
-
-.tree-row-add--script:hover {
-  border-color: rgba(31, 31, 31, 0.4);
-}
-
-.tree-row-add:active {
-  background: rgba(31, 31, 31, 0.10);
-}
-
-.tree-node-input {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid rgba(31, 31, 31, 0.2);
-  background: rgba(255, 255, 255, 0.9);
-  text-align: left;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 13px;
-  color: #1f1f1f;
-  outline: none;
-}
-
-.tree-node-input:focus {
-  background: #ffffff;
-  border-color: rgba(31, 31, 31, 0.45);
-  box-shadow: 0 0 0 2px rgba(80, 90, 120, 0.16);
-}
-
-.tree-node-input.tree-scene {
-  font-size: 12.5px;
-}
-
-.ghost {
-  border: none;
-  border-radius: 6px;
-  background: rgba(31, 31, 31, 0.06);
-  font-size: 11px;
-  padding: 2px 6px;
-  cursor: pointer;
-  color: #1f1f1f;
-}
-
-.ghost:hover {
-  background: rgba(31, 31, 31, 0.1);
-}
-
-.tree-context-overlay {
-  position: fixed;
-  inset: 0;
-  background: transparent;
-  z-index: 49;
-}
-
-.tree-context-menu {
-  position: fixed;
-  min-width: 160px;
-  border: 1px solid #d4d4d4;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
-  padding: 4px;
-  z-index: 55;
-  list-style: none;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.tree-context-menu li {
-  list-style: none;
-}
-
-.tree-context-menu button {
-  width: 100%;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  padding: 6px 10px;
-  text-align: left;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  color: #1f1f1f;
-}
-
-.tree-context-menu button:hover {
-  background: rgba(31, 31, 31, 0.06);
-}
-
-.tree-context-menu button.is-danger {
-  color: #a40000;
-}
-
-.tree-context-menu button.is-danger:hover {
-  background: #fde8e8;
-}
-
-/* ============================================================
    Scene editor — only blocks + stats footer now
    ============================================================ */
 
@@ -1309,6 +1061,133 @@ textarea.block-input,
 }
 
 /* ============================================================
+   Generic modal dialog (alerts / confirmations)
+   ============================================================ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 20, 0.32);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 90;
+  animation: modal-overlay-in 160ms ease both;
+}
+
+.modal-dialog {
+  width: min(380px, calc(100vw - 64px));
+  background: #ffffff;
+  border: 1px solid rgba(31, 31, 31, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+  padding: 22px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #1f1f1f;
+  animation: modal-dialog-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.modal-dialog-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.modal-dialog-message {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: rgba(31, 31, 31, 0.62);
+}
+
+.modal-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.modal-dialog-secondary,
+.modal-dialog-primary {
+  appearance: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.modal-dialog-secondary {
+  border: 1px solid rgba(31, 31, 31, 0.18);
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.modal-dialog-secondary:hover {
+  border-color: rgba(31, 31, 31, 0.4);
+  background: rgba(31, 31, 31, 0.03);
+}
+
+.modal-dialog-primary {
+  border: 1px solid #1f1f1f;
+  background: #1f1f1f;
+  color: #ffffff;
+}
+
+.modal-dialog-primary:hover {
+  background: #2f2f2f;
+  border-color: #2f2f2f;
+}
+
+.modal-dialog-primary.is-danger {
+  border-color: #b3261e;
+  background: #b3261e;
+}
+
+.modal-dialog-primary.is-danger:hover {
+  background: #c8362d;
+  border-color: #c8362d;
+}
+
+.modal-dialog-primary:focus-visible,
+.modal-dialog-secondary:focus-visible {
+  outline: 2px solid rgba(80, 90, 120, 0.5);
+  outline-offset: 2px;
+}
+
+@keyframes modal-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal-dialog {
+    animation-duration: 1ms;
+  }
+}
+
+/* ============================================================
    Splash screen — first thing the user sees on launch
    ============================================================ */
 
@@ -1606,9 +1485,6 @@ textarea.block-input,
 
 /* ============================================================
    Scene Orbit Navigator — always-visible left rail (timeline)
-   Supersedes the old `.orbit-navigator` hover-expand panel.
-   Legacy `.orbit-*` and `.tree-*` styles above are kept intact
-   for easy rollback but are no longer rendered.
    ============================================================ */
 
 .scene-orbit-navigator {

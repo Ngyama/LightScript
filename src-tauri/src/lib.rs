@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
 #[derive(Default, Deserialize, Serialize)]
@@ -223,77 +222,6 @@ fn load_project_from_path(project_path: String) -> Result<String, String> {
   Ok(content)
 }
 
-#[tauri::command]
-fn export_project_tree(project_path: String, project_json: String) -> Result<String, String> {
-  let project: Value =
-    serde_json::from_str(&project_json).map_err(|error| format!("invalid project json: {error}"))?;
-  let project_title = project["title"].as_str().unwrap_or("project");
-  let project_folder_name = sanitize_name(project_title);
-
-  let timestamp = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map_err(|error| format!("failed to read system time: {error}"))?
-    .as_secs();
-
-  let export_root = PathBuf::from(project_path)
-    .join("exports")
-    .join(format!("{project_folder_name}_{timestamp}"));
-
-  fs::create_dir_all(&export_root).map_err(|error| format!("failed to create export root: {error}"))?;
-  let scripts = project["scripts"]
-    .as_array()
-    .ok_or_else(|| "project.scripts must be an array".to_string())?;
-
-  for script in scripts {
-    let script_title = sanitize_name(script["title"].as_str().unwrap_or("script"));
-    let script_dir = export_root.join(script_title);
-    fs::create_dir_all(&script_dir).map_err(|error| format!("failed to create script dir: {error}"))?;
-
-    let scenes = script["scenes"]
-      .as_array()
-      .ok_or_else(|| "script.scenes must be an array".to_string())?;
-
-    for scene in scenes {
-      let scene_title = sanitize_name(scene["title"].as_str().unwrap_or("scene"));
-      let scene_path = script_dir.join(format!("{scene_title}.json"));
-      let content =
-        serde_json::to_string_pretty(scene).map_err(|error| format!("failed to serialize scene: {error}"))?;
-      fs::write(scene_path, content).map_err(|error| format!("failed to write scene file: {error}"))?;
-    }
-  }
-
-  Ok(export_root.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn export_scene_markdown(
-  project_path: String,
-  scene_title: String,
-  content: String,
-) -> Result<String, String> {
-  let project_dir = PathBuf::from(&project_path);
-  if !project_dir.exists() || !project_dir.is_dir() {
-    return Err(format!("project path does not exist: {project_path}"));
-  }
-
-  let exports_dir = project_dir.join("exports");
-  fs::create_dir_all(&exports_dir)
-    .map_err(|error| format!("failed to create exports dir: {error}"))?;
-
-  let timestamp = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map_err(|error| format!("failed to read system time: {error}"))?
-    .as_secs();
-
-  let safe_title = sanitize_name(&scene_title);
-  let file_name = format!("{safe_title}_{timestamp}.md");
-  let file_path = exports_dir.join(file_name);
-  fs::write(&file_path, content)
-    .map_err(|error| format!("failed to write scene markdown: {error}"))?;
-
-  Ok(file_path.to_string_lossy().to_string())
-}
-
 fn ensure_parent_dir(path: &Path) -> Result<(), String> {
   if let Some(parent) = path.parent() {
     if !parent.as_os_str().is_empty() {
@@ -379,8 +307,6 @@ pub fn run() {
       delete_project,
       save_project_to_path,
       load_project_from_path,
-      export_project_tree,
-      export_scene_markdown,
       write_text_export,
       write_docx_export
     ])

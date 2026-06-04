@@ -24,27 +24,9 @@ function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export interface ExportFileEntry {
-  relativePath: string;
-  content: string;
-}
-
 export interface ProjectSummary {
   name: string;
   path: string;
-}
-
-export function projectToExportEntries(project: Project): ExportFileEntry[] {
-  const entries: ExportFileEntry[] = [];
-  for (const script of project.scripts) {
-    for (const scene of script.scenes) {
-      entries.push({
-        relativePath: `${script.title}/${scene.title}.json`,
-        content: JSON.stringify(scene, null, 2),
-      });
-    }
-  }
-  return entries;
 }
 
 export async function pickDirectory(): Promise<string | null> {
@@ -142,35 +124,6 @@ export async function saveProject(projectPath: string, project: Project): Promis
     return;
   }
   localStorage.setItem(localProjectKey(projectPath), payload);
-}
-
-export async function exportProjectTree(projectPath: string, project: Project): Promise<string> {
-  const payload = JSON.stringify(project, null, 2);
-  if (isTauriRuntime()) {
-    return invoke<string>("export_project_tree", { projectPath, projectJson: payload });
-  }
-
-  const entries = projectToExportEntries(project);
-  localStorage.setItem(`${localProjectKey(projectPath)}.exportPreview`, JSON.stringify(entries, null, 2));
-  return "browser-localStorage-preview";
-}
-
-export async function exportSceneMarkdown(
-  projectPath: string,
-  sceneTitle: string,
-  content: string,
-): Promise<string> {
-  if (isTauriRuntime()) {
-    return invoke<string>("export_scene_markdown", {
-      projectPath,
-      sceneTitle,
-      content,
-    });
-  }
-
-  const key = `${localProjectKey(projectPath)}.sceneExport.${encodeURIComponent(sceneTitle)}`;
-  localStorage.setItem(key, content);
-  return `browser-localStorage-preview://${sceneTitle}.md`;
 }
 
 function sanitizeDefaultExportName(name: string): string {

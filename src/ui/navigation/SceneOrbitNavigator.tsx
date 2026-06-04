@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEditorStore } from "../../state/editorStore";
 import type { Project, Script, Selection } from "../../domain/model";
+import { ModalDialog } from "../floating/ModalDialog";
 
 type OrbitItem =
   | {
@@ -105,6 +106,7 @@ export function SceneOrbitNavigator() {
   const [menu, setMenu] = useState<OrbitContextMenuState>(null);
   const [editing, setEditing] = useState<OrbitEditingState>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
   const editingInputRef = useRef<HTMLInputElement | null>(null);
 
   const closeMenu = () => setMenu(null);
@@ -251,7 +253,7 @@ export function SceneOrbitNavigator() {
     closeMenu();
     const ok = deleteScene(scriptId, sceneId);
     if (!ok) {
-      window.alert("At least one scene must remain in each script.");
+      setNoticeMessage("Each script needs to keep at least one scene.");
     }
   };
 
@@ -259,7 +261,7 @@ export function SceneOrbitNavigator() {
     closeMenu();
     const ok = deleteScript(scriptId);
     if (!ok) {
-      window.alert("At least one script must remain in the project.");
+      setNoticeMessage("The project needs to keep at least one script.");
     }
   };
 
@@ -547,6 +549,17 @@ export function SceneOrbitNavigator() {
               )}
             </ul>
           </>,
+          document.body,
+        )}
+      {noticeMessage &&
+        createPortal(
+          <ModalDialog
+            title="Can’t delete"
+            message={noticeMessage}
+            confirmText="Got it"
+            onConfirm={() => setNoticeMessage(null)}
+            onClose={() => setNoticeMessage(null)}
+          />,
           document.body,
         )}
     </div>
