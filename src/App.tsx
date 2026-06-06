@@ -24,6 +24,7 @@ import { ExportDialog } from "./ui/floating/ExportDialog";
 import { FloatingActionBar } from "./ui/floating/FloatingActionBar";
 import { FloatingActionButton } from "./ui/floating/FloatingActionButton";
 import { ModalDialog } from "./ui/floating/ModalDialog";
+import { SettingsDialog } from "./ui/floating/SettingsDialog";
 import { SavedStatus } from "./ui/floating/SavedStatus";
 import { OrbitNavigator } from "./ui/navigation/OrbitNavigator";
 import { TitleBar } from "./ui/titlebar/TitleBar";
@@ -51,6 +52,7 @@ export default function App() {
   const [saveInfo, setSaveInfo] = useState("Not saved yet");
   const [stage, setStage] = useState<AppStage>("splash");
   const [exportTargetScene, setExportTargetScene] = useState<Scene | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [repoPath, setRepoPathInput] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -246,7 +248,7 @@ export default function App() {
 
   const handleHub = () => setStage("projectHub");
 
-  const handleSettings = () => setStage("setupRepo");
+  const handleSettings = () => setIsSettingsOpen(true);
 
   const titleBarLabel = stage === "editor" ? project.title || "Untitled" : "LightScript";
 
@@ -421,6 +423,7 @@ export default function App() {
             onError={(message) => setErrorMessage(message)}
           />
         )}
+        {isSettingsOpen && <SettingsDialog onClose={() => setIsSettingsOpen(false)} />}
       </div>
     );
   };
