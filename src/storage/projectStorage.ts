@@ -29,6 +29,18 @@ export interface ProjectSummary {
   path: string;
 }
 
+/**
+ * Fingerprint of a project's `project.json` on disk. Compared against an
+ * in-session baseline to detect edits made outside the app (e.g. a newer copy
+ * synced in by Google Drive from another machine). `null` means detection is
+ * unavailable (browser/dev runtime without the Tauri backend).
+ */
+export interface ProjectMeta {
+  mtimeMs: number;
+  size: number;
+  hash: string;
+}
+
 export async function pickDirectory(): Promise<string | null> {
   if (!isTauriRuntime()) {
     return null;
@@ -117,13 +129,39 @@ export async function loadProjectFromPath(projectPath: string): Promise<Project>
   return parseProject(raw);
 }
 
-export async function saveProject(projectPath: string, project: Project): Promise<void> {
+export async function saveProject(
+  projectPath: string,
+  project: Project,
+): Promise<ProjectMeta | null> {
   const payload = JSON.stringify(project, null, 2);
   if (isTauriRuntime()) {
-    await invoke("save_project_to_path", { projectPath, projectJson: payload });
-    return;
+    return invoke<ProjectMeta>("save_project_to_path", { projectPath, projectJson: payload });
   }
   localStorage.setItem(localProjectKey(projectPath), payload);
+  return null;
+}
+
+/**
+ * Read the current on-disk fingerprint for a project, or `null` when the
+ * backend is unavailable (browser/dev runtime) or the file is missing.
+ */
+export async function getProjectMeta(projectPath: string): Promise<ProjectMeta | null> {
+  if (isTauriRuntime()) {
+    return invoke<ProjectMeta | null>("get_project_meta", { projectPath });
+  }
+  return null;
+}
+
+/**
+ * List sibling files in the project directory that look like cloud
+ * conflict copies of `project.json` (e.g. Google Drive's `project (1).json`).
+ * Returns an empty array when the backend is unavailable.
+ */
+export async function listConflictCopies(projectPath: string): Promise<string[]> {
+  if (isTauriRuntime()) {
+    return invoke<string[]>("list_conflict_copies", { projectPath });
+  }
+  return [];
 }
 
 function sanitizeDefaultExportName(name: string): string {

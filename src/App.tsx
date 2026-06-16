@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Home, Settings } from "lucide-react";
 import "./app.css";
 import {
@@ -10,12 +10,15 @@ import { useEditorStore } from "./state/editorStore";
 import {
   createProject,
   deleteProject,
+  getProjectMeta,
   getRepoPath,
+  listConflictCopies,
   listProjects,
   loadProjectFromPath,
   pickDirectory,
   saveProject,
   setRepoPath,
+  type ProjectMeta,
   type ProjectSummary,
 } from "./storage/projectStorage";
 import type { Scene } from "./domain/model";
@@ -43,6 +46,15 @@ const STAGE_ORDER: Record<AppStage, number> = {
 
 const STAGE_TRANSITION_MS = 460;
 
+// Debounce window for auto-save. Kept a little longer than instant so a project
+// folder living inside Google Drive isn't hammered with uploads on every
+// keystroke (which also widens the window for cross-machine conflicts).
+const AUTOSAVE_DEBOUNCE_MS = 1500;
+
+// How often we re-check whether `project.json` was changed on disk by an
+// outside process (e.g. Google Drive syncing in a newer copy).
+const EXTERNAL_CHECK_INTERVAL_MS = 4000;
+
 export default function App() {
   const project = useEditorStore((state) => state.project);
   const hydrateProject = useEditorStore((state) => state.hydrateProject);
@@ -60,7 +72,32 @@ export default function App() {
   const [activeProjectPath, setActiveProjectPath] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectSummary | null>(null);
+  const [externalUpdate, setExternalUpdate] = useState(false);
+  const [conflictCopies, setConflictCopies] = useState<string[]>([]);
+  const [conflictDismissed, setConflictDismissed] = useState(false);
   const newProjectInputRef = useRef<HTMLInputElement>(null);
+
+  // Joined key of the last detected conflict-copy set, so a freshly appearing
+  // copy re-surfaces the banner even after a previous dismissal.
+  const conflictKeyRef = useRef("");
+
+  // Last on-disk fingerprint we consider "ours". Auto-save refreshes it after
+  // writing so our own writes never look like an external change; the poller
+  // compares fresh reads against it to detect outside edits.
+  const baselineMetaRef = useRef<ProjectMeta | null>(null);
+  // True while an auto-save write is in flight, so the poller doesn't mistake
+  // our own half-written file for an external change.
+  const isSavingRef = useRef(false);
+
+  const applyConflictCopies = useCallback((copies: string[]) => {
+    const key = copies.join("\u0000");
+    if (key !== conflictKeyRef.current) {
+      conflictKeyRef.current = key;
+      // A new (or newly cleared) set of copies un-dismisses the banner.
+      setConflictDismissed(false);
+    }
+    setConflictCopies(copies);
+  }, []);
 
   // Cross-fade/slide transition between stages. We keep the outgoing stage
   // mounted for one animation cycle so it can animate out while the new one
@@ -115,20 +152,71 @@ export default function App() {
   }, [isCreatingProject]);
 
   useEffect(() => {
-    if (!isHydrated || stage !== "editor" || !activeProjectPath) {
+    // Hold off auto-saving while an external update is waiting for the user's
+    // decision, otherwise we'd silently overwrite the incoming changes.
+    if (!isHydrated || stage !== "editor" || !activeProjectPath || externalUpdate) {
       return;
     }
     const timeout = window.setTimeout(() => {
+      isSavingRef.current = true;
       void saveProject(activeProjectPath, project)
-        .then(() => {
+        .then((meta) => {
+          if (meta) {
+            baselineMetaRef.current = meta;
+          }
           setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`);
         })
         .catch((error) => {
           setErrorMessage(error instanceof Error ? error.message : "Auto-save failed.");
+        })
+        .finally(() => {
+          isSavingRef.current = false;
         });
-    }, 250);
+    }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [activeProjectPath, isHydrated, project, stage]);
+  }, [activeProjectPath, externalUpdate, isHydrated, project, stage]);
+
+  // Poll the on-disk fingerprint while editing so a newer copy synced in by
+  // Google Drive (from another machine) surfaces a "reload?" prompt instead of
+  // being silently clobbered by the next auto-save.
+  useEffect(() => {
+    if (!isHydrated || stage !== "editor" || !activeProjectPath || externalUpdate) {
+      return;
+    }
+    let cancelled = false;
+    const interval = window.setInterval(() => {
+      if (isSavingRef.current) {
+        return;
+      }
+      void getProjectMeta(activeProjectPath)
+        .then((meta) => {
+          if (cancelled || !meta) {
+            return;
+          }
+          const baseline = baselineMetaRef.current;
+          if (baseline && meta.hash !== baseline.hash) {
+            setExternalUpdate(true);
+          }
+        })
+        .catch(() => {
+          // Transient read errors (e.g. file mid-sync) are ignored; the next
+          // tick will retry.
+        });
+      void listConflictCopies(activeProjectPath)
+        .then((copies) => {
+          if (!cancelled) {
+            applyConflictCopies(copies);
+          }
+        })
+        .catch(() => {
+          // Ignore; retried on the next tick.
+        });
+    }, EXTERNAL_CHECK_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeProjectPath, applyConflictCopies, externalUpdate, isHydrated, stage]);
 
   const refreshProjectList = async () => {
     const projects = await listProjects();
@@ -169,6 +257,9 @@ export default function App() {
       const loadedProject = await loadProjectFromPath(summary.path);
       assertProjectInvariant(loadedProject);
       hydrateProject(loadedProject);
+      baselineMetaRef.current = await getProjectMeta(summary.path);
+      setExternalUpdate(false);
+      applyConflictCopies(await listConflictCopies(summary.path));
       setActiveProjectPath(summary.path);
       setSaveInfo(`Opened ${summary.name}`);
       setErrorMessage(null);
@@ -176,6 +267,38 @@ export default function App() {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to open project.");
     }
+  };
+
+  const handleReloadExternal = async () => {
+    if (!activeProjectPath) {
+      setExternalUpdate(false);
+      return;
+    }
+    try {
+      const loadedProject = await loadProjectFromPath(activeProjectPath);
+      assertProjectInvariant(loadedProject);
+      hydrateProject(loadedProject);
+      baselineMetaRef.current = await getProjectMeta(activeProjectPath);
+      setExternalUpdate(false);
+      setSaveInfo(`Reloaded at ${new Date().toLocaleTimeString()}`);
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to reload project.");
+    }
+  };
+
+  const handleKeepLocal = async () => {
+    // User chose to keep their in-memory version. Adopt the current on-disk
+    // fingerprint as the new baseline so we stop prompting; the next auto-save
+    // will overwrite the synced copy (last-write-wins, as designed).
+    if (activeProjectPath) {
+      try {
+        baselineMetaRef.current = await getProjectMeta(activeProjectPath);
+      } catch {
+        // Ignore; a failed refresh just means we may prompt again later.
+      }
+    }
+    setExternalUpdate(false);
   };
 
   const handleConfirmDelete = async () => {
@@ -278,6 +401,11 @@ export default function App() {
           <div className="startup-card">
             <h1>Set Repository Path</h1>
             <p>Choose one local folder as the root for all your projects. You only need to set it once.</p>
+            <p className="startup-hint">
+              To sync across devices, point this to a folder inside your Google
+              Drive (Drive for desktop). LightScript will detect when another
+              device syncs in changes and offer to reload.
+            </p>
             <input
               value={repoPath}
               onChange={(event) => setRepoPathInput(event.target.value)}
@@ -448,6 +576,43 @@ export default function App() {
             {renderStageContent(stage)}
           </div>
         </div>
+        {stage === "editor" && conflictCopies.length > 0 && !conflictDismissed && (
+          <div className="conflict-banner" role="alert">
+            <div className="conflict-banner-body">
+              <strong>
+                {conflictCopies.length} possible conflict{" "}
+                {conflictCopies.length === 1 ? "copy" : "copies"} detected
+              </strong>
+              <span className="conflict-banner-detail">
+                Google Drive kept an extra copy because two devices edited this
+                project at once. LightScript only reads <code>project.json</code>
+                ; review and remove these in your file manager to avoid losing
+                edits: {conflictCopies.join(", ")}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="conflict-banner-dismiss"
+              onClick={() => setConflictDismissed(true)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+        {externalUpdate && stage === "editor" && (
+          <ModalDialog
+            title="External update detected"
+            message="This project's file on disk changed outside LightScript (for example, Google Drive synced in a newer copy from another device). Reload to load the latest version, or keep editing this copy and overwrite it on the next save."
+            confirmText="Reload"
+            cancelText="Keep my version"
+            onConfirm={() => {
+              void handleReloadExternal();
+            }}
+            onClose={() => {
+              void handleKeepLocal();
+            }}
+          />
+        )}
         {pendingDelete && (
           <ModalDialog
             title="Delete project"

@@ -1,8 +1,11 @@
 use docx_rs::{Docx, Paragraph, Run};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 use tauri::Manager;
 
 #[derive(Default, Deserialize, Serialize)]
@@ -14,6 +17,40 @@ struct AppSettings {
 struct ProjectSummary {
   name: String,
   path: String,
+}
+
+/// Lightweight fingerprint of a project's `project.json`. Used to detect when
+/// the file was changed outside the running app (e.g. Google Drive syncing in
+/// a newer copy from another machine). The hash is only ever compared against
+/// a baseline captured by the same running session, so a process-local
+/// hashing scheme is sufficient.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectMeta {
+  mtime_ms: u64,
+  size: u64,
+  hash: String,
+}
+
+fn compute_project_meta(data_path: &Path) -> Result<ProjectMeta, String> {
+  let content =
+    fs::read(data_path).map_err(|error| format!("failed to read project for meta: {error}"))?;
+  let metadata =
+    fs::metadata(data_path).map_err(|error| format!("failed to stat project: {error}"))?;
+  let mtime_ms = metadata
+    .modified()
+    .ok()
+    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+    .map(|elapsed| elapsed.as_millis() as u64)
+    .unwrap_or(0);
+  let size = content.len() as u64;
+  let mut hasher = DefaultHasher::new();
+  content.hash(&mut hasher);
+  Ok(ProjectMeta {
+    mtime_ms,
+    size,
+    hash: hasher.finish().to_string(),
+  })
 }
 
 fn sanitize_name(name: &str) -> String {
@@ -172,7 +209,7 @@ fn create_project(app: tauri::AppHandle, project_name: String, project_json: Str
 }
 
 #[tauri::command]
-fn save_project_to_path(project_path: String, project_json: String) -> Result<(), String> {
+fn save_project_to_path(project_path: String, project_json: String) -> Result<ProjectMeta, String> {
   serde_json::from_str::<Value>(&project_json).map_err(|error| format!("invalid project json: {error}"))?;
   let project_dir = PathBuf::from(project_path);
   if !project_dir.exists() || !project_dir.is_dir() {
@@ -182,7 +219,52 @@ fn save_project_to_path(project_path: String, project_json: String) -> Result<()
   let temp_path = project_dir.join("project.json.tmp");
   fs::write(&temp_path, project_json).map_err(|error| format!("failed to write temp project: {error}"))?;
   fs::rename(&temp_path, &data_path).map_err(|error| format!("failed to finalize project write: {error}"))?;
-  Ok(())
+  compute_project_meta(&data_path)
+}
+
+#[tauri::command]
+fn get_project_meta(project_path: String) -> Result<Option<ProjectMeta>, String> {
+  let data_path = project_json_path(&PathBuf::from(project_path));
+  if !data_path.exists() {
+    return Ok(None);
+  }
+  Ok(Some(compute_project_meta(&data_path)?))
+}
+
+/// A project directory only ever legitimately contains `project.json` (and a
+/// transient `project.json.tmp` mid-write). Cloud clients like Google Drive
+/// resolve a two-device edit conflict by keeping the loser as a sibling copy,
+/// e.g. `project (1).json` or `project (Name's conflicted copy 2024-01-01).json`.
+/// Any other `project*.json` is therefore treated as a conflict copy.
+fn is_conflict_copy_name(name: &str) -> bool {
+  if name.eq_ignore_ascii_case("project.json") {
+    return false;
+  }
+  let lower = name.to_lowercase();
+  lower.starts_with("project") && lower.ends_with(".json")
+}
+
+#[tauri::command]
+fn list_conflict_copies(project_path: String) -> Result<Vec<String>, String> {
+  let project_dir = PathBuf::from(project_path);
+  if !project_dir.exists() || !project_dir.is_dir() {
+    return Err("project path does not exist or is not a directory".to_string());
+  }
+  let mut copies: Vec<String> = Vec::new();
+  for entry in
+    fs::read_dir(&project_dir).map_err(|error| format!("failed to read project dir: {error}"))?
+  {
+    let entry = entry.map_err(|error| format!("failed to read project entry: {error}"))?;
+    if !entry.path().is_file() {
+      continue;
+    }
+    let name = entry.file_name().to_string_lossy().to_string();
+    if is_conflict_copy_name(&name) {
+      copies.push(name);
+    }
+  }
+  copies.sort();
+  Ok(copies)
 }
 
 #[tauri::command]
@@ -306,6 +388,8 @@ pub fn run() {
       create_project,
       delete_project,
       save_project_to_path,
+      get_project_meta,
+      list_conflict_copies,
       load_project_from_path,
       write_text_export,
       write_docx_export
