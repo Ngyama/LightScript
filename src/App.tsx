@@ -543,6 +543,7 @@ export default function App() {
         {exportTargetScene && (
           <ExportDialog
             scene={exportTargetScene}
+            project={project}
             onClose={() => setExportTargetScene(null)}
             onComplete={(savedPath, format) => {
               setErrorMessage(null);

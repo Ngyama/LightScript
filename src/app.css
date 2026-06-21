@@ -346,7 +346,7 @@ body {
   width: 100%;
   height: 100%;
   /* left padding reserves room for the always-visible Scene Orbit rail */
-  padding: 72px 48px 56px 240px;
+  padding: 48px 36px 40px 240px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -354,7 +354,7 @@ body {
 }
 
 .editor-inner {
-  width: min(880px, calc(100vw - 120px));
+  width: min(1120px, calc(100vw - 300px));
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -376,7 +376,7 @@ body {
   text-align: center;
   font-size: 26px;
   font-weight: 700;
-  margin: 0 0 22px;
+  margin: 0 0 12px;
   color: #1f1f1f;
 }
 
@@ -402,7 +402,7 @@ body {
   justify-content: center;
   align-items: center;
   gap: 8px;
-  margin-bottom: 28px;
+  margin-bottom: 14px;
   padding: 0 8px;
   user-select: none;
 }
@@ -530,6 +530,184 @@ body {
 .character-chip-input:focus {
   border-color: rgba(31, 31, 31, 0.4);
   background: #ffffff;
+}
+
+/* Global character bar — collapsible project roster */
+
+.global-character-bar {
+  margin: -4px auto 4px;
+  max-width: 1120px;
+  width: 100%;
+  user-select: none;
+}
+
+.global-character-bar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(31, 31, 31, 0.72);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.global-character-bar-toggle:hover {
+  background: rgba(31, 31, 31, 0.04);
+  border-color: rgba(31, 31, 31, 0.08);
+}
+
+.global-character-bar-title {
+  font-weight: 600;
+  color: rgba(31, 31, 31, 0.82);
+}
+
+.global-character-bar-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(31, 31, 31, 0.08);
+  text-align: center;
+  line-height: 18px;
+}
+
+.global-character-bar-preview {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.character-chip--compact {
+  padding: 1px 7px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.global-character-bar-more {
+  font-size: 11px;
+  color: rgba(31, 31, 31, 0.45);
+  flex-shrink: 0;
+}
+
+.global-character-bar-chevron {
+  margin-left: auto;
+  display: inline-flex;
+  opacity: 0.55;
+}
+
+.global-character-bar-panel {
+  margin-top: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  overflow: hidden;
+}
+
+.global-character-bar-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px 0 2px;
+}
+
+.global-character-bar-empty {
+  margin: 0;
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(31, 31, 31, 0.45);
+}
+
+.global-character-bar-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(180, 40, 40, 0.08);
+  font-size: 12px;
+  color: rgba(120, 20, 20, 0.9);
+}
+
+.global-character-bar-confirm button {
+  border: 1px solid rgba(31, 31, 31, 0.14);
+  background: transparent;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.global-character-bar-confirm-delete {
+  border-color: rgba(180, 40, 40, 0.35) !important;
+  color: rgba(140, 20, 20, 0.95);
+}
+
+.character-bar-picker {
+  position: relative;
+}
+
+.character-bar-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 8px;
+  border: 1px solid rgba(31, 31, 31, 0.12);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.character-bar-picker-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.character-bar-picker-option {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.character-bar-picker-option:hover {
+  background: rgba(31, 31, 31, 0.06);
+}
+
+.character-bar-picker-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: rgba(31, 31, 31, 0.5);
+}
+
+.character-bar-picker-input {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ============================================================
@@ -668,7 +846,7 @@ body {
   gap: 6px;
   padding: 4px 0;
   background: transparent;
-  max-width: 880px;
+  max-width: 100%;
   margin: 0 auto;
   width: 100%;
   flex: 1;

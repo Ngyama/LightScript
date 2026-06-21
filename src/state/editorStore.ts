@@ -2,7 +2,10 @@ import { create } from "zustand";
 import {
   assertProjectInvariant,
   createDefaultProject,
-  normalizeSceneCharacters,
+  ensureGlobalCharacterInProject,
+  getSceneCharacters,
+  normalizeCharacterIds,
+  type Character,
   type Project,
   type Scene,
   type SceneBlock,
@@ -20,6 +23,8 @@ const defaultSelection: Selection = {
   sceneId: defaultProject.scripts[0]?.scenes[0]?.id,
 };
 
+type GlobalCharacterPatch = Partial<Pick<Character, "name" | "color" | "memo">>;
+
 type EditorState = {
   project: Project;
   selection: Selection;
@@ -35,9 +40,16 @@ type EditorState = {
   deleteScript: (scriptId: string) => boolean;
   renameScript: (scriptId: string, title: string) => void;
   renameScene: (sceneId: string, title: string) => void;
-  setSceneBlocks: (sceneId: string, blocks: SceneBlock[], sceneCharacters?: string[]) => void;
-  setSceneCharacters: (sceneId: string, characters: string[]) => void;
-  renameSceneCharacter: (sceneId: string, oldName: string, newName: string) => boolean;
+  setSceneBlocks: (sceneId: string, blocks: SceneBlock[]) => void;
+  addGlobalCharacter: (name: string) => string | undefined;
+  renameGlobalCharacter: (characterId: string, name: string) => void;
+  deleteGlobalCharacter: (characterId: string) => void;
+  updateGlobalCharacter: (characterId: string, patch: GlobalCharacterPatch) => void;
+  ensureGlobalCharacter: (name: string) => string;
+  addCharacterToCurrentScene: (characterId: string) => void;
+  removeCharacterFromCurrentScene: (characterId: string) => void;
+  createAndAddCharacterToCurrentScene: (name: string) => void;
+  updateDialogueCharacter: (blockId: string, characterId?: string) => void;
 };
 
 function findScene(project: Project, sceneId?: string): Scene | undefined {
@@ -55,7 +67,43 @@ function withInvariant(project: Project): Project {
   return project;
 }
 
-export const useEditorStore = create<EditorState>((set) => ({
+function mapScenes(
+  project: Project,
+  sceneId: string | undefined,
+  mapper: (scene: Scene) => Scene,
+): Project {
+  return {
+    ...project,
+    scripts: project.scripts.map((script) => ({
+      ...script,
+      scenes: script.scenes.map((scene) =>
+        scene.id === sceneId ? mapper(scene) : scene,
+      ),
+    })),
+  };
+}
+
+function clearCharacterFromProject(project: Project, characterId: string): Project {
+  return {
+    ...project,
+    characters: project.characters.filter((entry) => entry.id !== characterId),
+    scripts: project.scripts.map((script) => ({
+      ...script,
+      scenes: script.scenes.map((scene) => ({
+        ...scene,
+        characterIds: scene.characterIds.filter((id) => id !== characterId),
+        blocks: scene.blocks.map((block) => {
+          if (block.type !== "dialogue" || block.characterId !== characterId) {
+            return block;
+          }
+          return { ...block, characterId: undefined };
+        }),
+      })),
+    })),
+  };
+}
+
+export const useEditorStore = create<EditorState>((set, get) => ({
   project: defaultProject,
   selection: defaultSelection,
   isHydrated: false,
@@ -114,7 +162,7 @@ export const useEditorStore = create<EditorState>((set) => ({
           {
             id: newScriptId,
             title: `Script ${state.project.scripts.length + 1}`,
-            scenes: [{ id: newSceneId, title: "Scene 1", characters: [], blocks: [] }],
+            scenes: [{ id: newSceneId, title: "Scene 1", characterIds: [], blocks: [] }],
           },
         ],
       });
@@ -140,7 +188,7 @@ export const useEditorStore = create<EditorState>((set) => ({
             {
               id: randomId(),
               title: `Scene ${script.scenes.length + 1}`,
-              characters: [],
+              characterIds: [],
               blocks: [],
             },
           ],
@@ -259,80 +307,169 @@ export const useEditorStore = create<EditorState>((set) => ({
         })),
       }),
     })),
-  setSceneBlocks: (sceneId, blocks, sceneCharacters) =>
+  setSceneBlocks: (sceneId, blocks) =>
     set((state) => ({
-      project: withInvariant({
-        ...state.project,
-        scripts: state.project.scripts.map((script) => ({
-          ...script,
-          scenes: script.scenes.map((scene) =>
-            scene.id === sceneId
-              ? {
-                  ...scene,
-                  blocks,
-                  characters: normalizeSceneCharacters(sceneCharacters ?? scene.characters),
-                }
-              : scene,
-          ),
+      project: withInvariant(
+        mapScenes(state.project, sceneId, (scene) => ({
+          ...scene,
+          blocks,
         })),
-      }),
+      ),
     })),
-  setSceneCharacters: (sceneId, characters) =>
-    set((state) => ({
-      project: withInvariant({
-        ...state.project,
-        scripts: state.project.scripts.map((script) => ({
-          ...script,
-          scenes: script.scenes.map((scene) =>
-            scene.id === sceneId
-              ? { ...scene, characters: normalizeSceneCharacters(characters) }
-              : scene,
-          ),
-        })),
-      }),
-    })),
-  renameSceneCharacter: (sceneId, oldName, newName) => {
-    const before = oldName.trim();
-    const after = newName.trim();
-    if (!before || !after) return false;
-    if (before === after) return true;
-    let applied = false;
+  addGlobalCharacter: (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return undefined;
+    let createdId: string | undefined;
     set((state) => {
-      const updatedScripts = state.project.scripts.map((script) => ({
-        ...script,
-        scenes: script.scenes.map((scene) => {
-          if (scene.id !== sceneId) return scene;
-          // Skip if old name isn't present, or new name collides with another
-          // existing roster entry (collisions would be silently merged by the
-          // normalizer; refuse instead so the user can pick a unique name).
-          const hasOld = scene.characters.includes(before);
-          const collides =
-            scene.characters.some((entry) => entry === after) && after !== before;
-          if (!hasOld || collides) return scene;
-          const nextCharacters = normalizeSceneCharacters(
-            scene.characters.map((entry) => (entry === before ? after : entry)),
-          );
-          const nextBlocks: SceneBlock[] = scene.blocks.map((block) => {
-            if (block.type === "dialogue" && block.character === before) {
-              return { ...block, character: after };
-            }
-            return block;
-          });
-          applied = true;
-          return { ...scene, characters: nextCharacters, blocks: nextBlocks };
+      const { project, characterId } = ensureGlobalCharacterInProject(state.project, trimmed);
+      createdId = characterId;
+      return { project: withInvariant(project) };
+    });
+    return createdId;
+  },
+  renameGlobalCharacter: (characterId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    set((state) => ({
+      project: withInvariant({
+        ...state.project,
+        characters: state.project.characters.map((entry) =>
+          entry.id === characterId ? { ...entry, name: trimmed } : entry,
+        ),
+      }),
+    }));
+  },
+  deleteGlobalCharacter: (characterId) =>
+    set((state) => ({
+      project: withInvariant(clearCharacterFromProject(state.project, characterId)),
+    })),
+  updateGlobalCharacter: (characterId, patch) =>
+    set((state) => ({
+      project: withInvariant({
+        ...state.project,
+        characters: state.project.characters.map((entry) => {
+          if (entry.id !== characterId) return entry;
+          const next: Character = { ...entry };
+          if (patch.name !== undefined) {
+            const trimmed = patch.name.trim();
+            if (!trimmed) return entry;
+            next.name = trimmed;
+          }
+          if (patch.color !== undefined) {
+            const trimmed = patch.color.trim();
+            if (trimmed) next.color = trimmed;
+            else delete next.color;
+          }
+          if (patch.memo !== undefined) {
+            const trimmed = patch.memo.trim();
+            if (trimmed) next.memo = trimmed;
+            else delete next.memo;
+          }
+          return next;
+        }),
+      }),
+    })),
+  ensureGlobalCharacter: (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new Error("Character name cannot be empty.");
+    }
+    const existing = get().project.characters.find((entry) => entry.name.trim() === trimmed);
+    if (existing) return existing.id;
+    const id = get().addGlobalCharacter(trimmed);
+    if (!id) {
+      throw new Error("Failed to create character.");
+    }
+    return id;
+  },
+  addCharacterToCurrentScene: (characterId) =>
+    set((state) => {
+      const sceneId = state.selection.sceneId;
+      if (!sceneId) return state;
+      if (!state.project.characters.some((entry) => entry.id === characterId)) {
+        return state;
+      }
+      return {
+        project: withInvariant(
+          mapScenes(state.project, sceneId, (scene) => {
+            if (scene.characterIds.includes(characterId)) return scene;
+            return {
+              ...scene,
+              characterIds: [...scene.characterIds, characterId],
+            };
+          }),
+        ),
+      };
+    }),
+  removeCharacterFromCurrentScene: (characterId) =>
+    set((state) => {
+      const sceneId = state.selection.sceneId;
+      if (!sceneId) return state;
+      return {
+        project: withInvariant(
+          mapScenes(state.project, sceneId, (scene) => ({
+            ...scene,
+            characterIds: scene.characterIds.filter((id) => id !== characterId),
+            blocks: scene.blocks.map((block) => {
+              if (block.type !== "dialogue" || block.characterId !== characterId) {
+                return block;
+              }
+              return { ...block, characterId: undefined };
+            }),
+          })),
+        ),
+      };
+    }),
+  createAndAddCharacterToCurrentScene: (name) => {
+    const characterId = get().ensureGlobalCharacter(name);
+    get().addCharacterToCurrentScene(characterId);
+  },
+  updateDialogueCharacter: (blockId, characterId) =>
+    set((state) => {
+      const sceneId = state.selection.sceneId;
+      if (!sceneId) return state;
+
+      let nextProject = state.project;
+      if (characterId && !nextProject.characters.some((entry) => entry.id === characterId)) {
+        return state;
+      }
+
+      const scene = findScene(nextProject, sceneId);
+      if (!scene) return state;
+
+      if (characterId && !scene.characterIds.includes(characterId)) {
+        nextProject = mapScenes(nextProject, sceneId, (current) => ({
+          ...current,
+          characterIds: normalizeCharacterIds([...current.characterIds, characterId]),
+        }));
+      }
+
+      nextProject = mapScenes(nextProject, sceneId, (current) => ({
+        ...current,
+        blocks: current.blocks.map((block) => {
+          if (block.id !== blockId || block.type !== "dialogue") return block;
+          return {
+            ...block,
+            characterId: characterId && characterId.trim() ? characterId : undefined,
+          };
         }),
       }));
-      if (!applied) return state;
-      return { project: withInvariant({ ...state.project, scripts: updatedScripts }) };
-    });
-    return applied;
-  },
+
+      return { project: withInvariant(nextProject) };
+    }),
 }));
 
 export function useSelectedScene(): Scene | undefined {
   const project = useEditorStore((state) => state.project);
   const sceneId = useEditorStore((state) => state.selection.sceneId);
   return findScene(project, sceneId);
+}
+
+export function useCurrentSceneCharacters(): Character[] {
+  const project = useEditorStore((state) => state.project);
+  const scene = useSelectedScene();
+  if (!scene) return [];
+  return getSceneCharacters(project, scene);
 }
 
 export function getCurrentProject(): Project {

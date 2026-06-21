@@ -1,3 +1,11 @@
+import {
+  getCharacterName,
+  migrateProjectCharacters,
+  normalizeCharacterIds,
+  normalizeProjectCharacterReferences,
+  normalizeProjectCharacters,
+} from "./characters";
+
 export type BlockType = "dialogue" | "narrative";
 
 export interface NarrativeBlock {
@@ -9,7 +17,7 @@ export interface NarrativeBlock {
 export interface DialogueBlock {
   id: string;
   type: "dialogue";
-  character?: string;
+  characterId?: string;
   text: string;
 }
 
@@ -18,7 +26,7 @@ export type SceneBlock = NarrativeBlock | DialogueBlock;
 export interface Scene {
   id: string;
   title: string;
-  characters: string[];
+  characterIds: string[];
   blocks: SceneBlock[];
 }
 
@@ -31,6 +39,8 @@ export interface Script {
 export interface Character {
   id: string;
   name: string;
+  color?: string;
+  memo?: string;
 }
 
 export interface Project {
@@ -50,6 +60,7 @@ export interface Selection {
   sceneId?: string;
 }
 
+
 const randomId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -58,7 +69,7 @@ export function createDefaultProject(): Project {
   const introScene: Scene = {
     id: randomId(),
     title: "Scene 1",
-    characters: [],
+    characterIds: [],
     blocks: [{ id: randomId(), type: "narrative", text: "" }],
   };
 
@@ -80,7 +91,7 @@ export function createDefaultProject(): Project {
   };
 }
 
-function assertValidBlock(block: SceneBlock): void {
+function assertValidBlock(block: SceneBlock, validCharacterIds: Set<string>): void {
   if (block.type === "narrative") {
     if (typeof block.text !== "string") {
       throw new Error("Narrative block text must be string.");
@@ -91,8 +102,13 @@ function assertValidBlock(block: SceneBlock): void {
     if (typeof block.text !== "string") {
       throw new Error("Dialogue block text must be string.");
     }
-    if (block.character !== undefined && typeof block.character !== "string") {
-      throw new Error("Dialogue block character must be string when present.");
+    if (block.characterId !== undefined) {
+      if (typeof block.characterId !== "string") {
+        throw new Error("Dialogue block characterId must be string when present.");
+      }
+      if (!validCharacterIds.has(block.characterId)) {
+        throw new Error("Dialogue block characterId must reference a project character.");
+      }
     }
   }
 }
@@ -104,6 +120,24 @@ function assertBlockReadyForExport(block: SceneBlock): void {
 }
 
 export function assertProjectInvariant(project: Project): void {
+  if (!Array.isArray(project.characters)) {
+    throw new Error("Project characters must be an array.");
+  }
+
+  const validCharacterIds = new Set<string>();
+  for (const character of project.characters) {
+    if (typeof character.id !== "string" || typeof character.name !== "string") {
+      throw new Error("Project character must have string id and name.");
+    }
+    if (!character.id.trim() || !character.name.trim()) {
+      throw new Error("Project character id and name cannot be empty.");
+    }
+    if (validCharacterIds.has(character.id)) {
+      throw new Error("Duplicate project character id.");
+    }
+    validCharacterIds.add(character.id);
+  }
+
   if (project.scripts.length === 0) {
     throw new Error("Project must contain at least one script.");
   }
@@ -126,11 +160,30 @@ export function assertProjectInvariant(project: Project): void {
         throw new Error("Duplicate scene id.");
       }
       seenSceneIds.add(scene.id);
+
+      if (!Array.isArray(scene.characterIds)) {
+        throw new Error("Scene characterIds must be an array.");
+      }
+
+      const seenSceneCharacterIds = new Set<string>();
+      for (const characterId of scene.characterIds) {
+        if (typeof characterId !== "string" || !characterId.trim()) {
+          throw new Error("Scene characterIds entries must be non-empty strings.");
+        }
+        if (!validCharacterIds.has(characterId)) {
+          throw new Error("Scene characterIds must reference project characters.");
+        }
+        if (seenSceneCharacterIds.has(characterId)) {
+          throw new Error("Duplicate scene character id.");
+        }
+        seenSceneCharacterIds.add(characterId);
+      }
+
       for (const block of scene.blocks) {
         if (block.type !== "narrative" && block.type !== "dialogue") {
           throw new Error("Scene block type must be narrative or dialogue.");
         }
-        assertValidBlock(block);
+        assertValidBlock(block, validCharacterIds);
       }
     }
   }
@@ -147,35 +200,15 @@ export function assertProjectReadyForExport(project: Project): void {
   }
 }
 
-export function normalizeSceneCharacters(characters: unknown): string[] {
-  if (!Array.isArray(characters)) {
-    return [];
-  }
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const raw of characters) {
-    if (typeof raw !== "string") {
-      continue;
-    }
-    const value = raw.trim();
-    if (!value || seen.has(value)) {
-      continue;
-    }
-    seen.add(value);
-    result.push(value);
-  }
-  return result;
-}
-
-export function toDialogueText(character: string | undefined, text: string): string {
-  const speaker = character?.trim();
-  if (!speaker) {
+export function toDialogueText(speaker: string | undefined, text: string): string {
+  const name = speaker?.trim();
+  if (!name) {
     return `“${text}”`;
   }
-  return `${speaker}：“${text}”`;
+  return `${name}：“${text}”`;
 }
 
-export function sceneToPlainText(scene: Scene): string {
+export function sceneToPlainText(scene: Scene, project: Project): string {
   const lines: string[] = [scene.title];
 
   for (const block of scene.blocks) {
@@ -187,7 +220,7 @@ export function sceneToPlainText(scene: Scene): string {
       continue;
     }
 
-    const speaker = block.character?.trim();
+    const speaker = getCharacterName(project, block.characterId);
     lines.push("");
     if (speaker) {
       lines.push(`${speaker}：“${text}”`);
@@ -199,7 +232,7 @@ export function sceneToPlainText(scene: Scene): string {
   return `${lines.join("\n")}\n`;
 }
 
-export function sceneToMarkdown(scene: Scene): string {
+export function sceneToMarkdown(scene: Scene, project: Project): string {
   const lines: string[] = [`# ${scene.title}`];
 
   for (const block of scene.blocks) {
@@ -212,7 +245,7 @@ export function sceneToMarkdown(scene: Scene): string {
 
     const text = block.text.trim();
     if (!text) continue;
-    const speaker = block.character?.trim();
+    const speaker = getCharacterName(project, block.characterId);
     lines.push("");
     if (speaker) {
       lines.push(`**${speaker}**: ${text}`);
@@ -237,7 +270,26 @@ interface LegacyBlock {
   id?: string;
   type?: string;
   character?: unknown;
+  characterId?: unknown;
   text?: unknown;
+}
+
+/** Dialogue block during parse — may still carry legacy `character` name until migration. */
+type MigratingDialogueBlock = DialogueBlock & { character?: string };
+
+function createMigratingDialogue(
+  id: string,
+  text: string,
+  legacyCharacter: string,
+  legacyCharacterId?: string,
+): MigratingDialogueBlock {
+  const block: MigratingDialogueBlock = { id, type: "dialogue", text };
+  if (legacyCharacterId) {
+    block.characterId = legacyCharacterId;
+  } else if (legacyCharacter) {
+    block.character = legacyCharacter;
+  }
+  return block;
 }
 
 function migrateLegacyBlocks(rawBlocks: unknown): SceneBlock[] {
@@ -248,7 +300,9 @@ function migrateLegacyBlocks(rawBlocks: unknown): SceneBlock[] {
     const block = list[i] ?? {};
     const id = typeof block.id === "string" ? block.id : randomId();
     const text = typeof block.text === "string" ? block.text : "";
-    const character = typeof block.character === "string" ? block.character : "";
+    const legacyCharacter = typeof block.character === "string" ? block.character : "";
+    const legacyCharacterId =
+      typeof block.characterId === "string" ? block.characterId.trim() : undefined;
 
     if (block.type === "action" || block.type === "narrative") {
       result.push({ id, type: "narrative", text });
@@ -259,33 +313,26 @@ function migrateLegacyBlocks(rawBlocks: unknown): SceneBlock[] {
       const next = list[i + 1] ?? {};
       const nextCharacter = typeof next.character === "string" ? next.character : "";
       const nextText = typeof next.text === "string" ? next.text : "";
+      const nextCharacterId =
+        typeof next.characterId === "string" ? next.characterId.trim() : undefined;
       if (next.type === "dialogue") {
-        const mergedCharacter = character || nextCharacter;
-        result.push({
-          id: typeof next.id === "string" ? next.id : id,
-          type: "dialogue",
-          character: mergedCharacter || undefined,
-          text: nextText,
-        });
+        result.push(
+          createMigratingDialogue(
+            typeof next.id === "string" ? next.id : id,
+            nextText,
+            legacyCharacter || nextCharacter,
+            nextCharacterId,
+          ),
+        );
         i += 1;
       } else {
-        result.push({
-          id,
-          type: "dialogue",
-          character: character || undefined,
-          text: "",
-        });
+        result.push(createMigratingDialogue(id, "", legacyCharacter, legacyCharacterId));
       }
       continue;
     }
 
     if (block.type === "dialogue") {
-      result.push({
-        id,
-        type: "dialogue",
-        character: character || undefined,
-        text,
-      });
+      result.push(createMigratingDialogue(id, text, legacyCharacter, legacyCharacterId));
       continue;
     }
 
@@ -295,14 +342,59 @@ function migrateLegacyBlocks(rawBlocks: unknown): SceneBlock[] {
   return result;
 }
 
-export function parseProject(raw: string): Project {
-  const parsed = JSON.parse(raw) as Project;
-  for (const script of parsed.scripts ?? []) {
-    for (const scene of script.scenes ?? []) {
-      scene.characters = normalizeSceneCharacters(scene.characters);
-      scene.blocks = migrateLegacyBlocks(scene.blocks);
-    }
-  }
-  assertProjectInvariant(parsed);
-  return parsed;
+interface RawProject extends Omit<Project, "characters" | "scripts"> {
+  characters?: unknown;
+  scripts?: Array<{
+    id: string;
+    title: string;
+    scenes?: Array<Scene & { characters?: unknown }>;
+  }>;
 }
+
+export function parseProject(raw: string): Project {
+  const parsed = JSON.parse(raw) as RawProject;
+  const scripts = (parsed.scripts ?? []).map((script) => ({
+    ...script,
+    scenes: (script.scenes ?? []).map((scene) => {
+      const legacyScene = scene as Scene & { characters?: unknown };
+      const characterIds = normalizeCharacterIds(legacyScene.characterIds);
+      const blocks = migrateLegacyBlocks(scene.blocks);
+      const migratingScene: Scene & { characters?: unknown } = {
+        id: scene.id,
+        title: scene.title,
+        characterIds,
+        blocks,
+      };
+      if (Array.isArray(legacyScene.characters)) {
+        migratingScene.characters = legacyScene.characters;
+      }
+      return migratingScene;
+    }),
+  }));
+
+  const interim: Project & { scripts: Array<{ scenes: Array<Scene & { characters?: unknown }> }> } =
+    {
+      id: parsed.id,
+      title: parsed.title,
+      worldbuilding: parsed.worldbuilding,
+      scripts,
+      characters: normalizeProjectCharacters(parsed.characters),
+      settings: parsed.settings ?? { enableDialogueShortcut: true },
+    };
+
+  const migrated = migrateProjectCharacters(interim);
+  const normalized = normalizeProjectCharacterReferences(migrated);
+  assertProjectInvariant(normalized);
+  return normalized;
+}
+
+export {
+  getCharacterName,
+  getSceneCharacters,
+  ensureGlobalCharacterInProject,
+  migrateProjectCharacters,
+  normalizeCharacterIds,
+  normalizeProjectCharacterReferences,
+  normalizeProjectCharacters,
+  sceneToExportScene,
+} from "./characters";

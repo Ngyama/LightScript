@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Scene } from "../../domain/model";
-import { sceneToMarkdown, sceneToPlainText } from "../../domain/model";
+import type { Project, Scene } from "../../domain/model";
+import { sceneToExportScene, sceneToMarkdown, sceneToPlainText } from "../../domain/model";
 import {
   EXPORT_FORMATS,
   pickExportSavePath,
@@ -11,12 +11,13 @@ import {
 
 interface ExportDialogProps {
   scene: Scene;
+  project: Project;
   onClose: () => void;
   onComplete: (savedPath: string, format: ExportFormat) => void;
   onError: (message: string) => void;
 }
 
-export function ExportDialog({ scene, onClose, onComplete, onError }: ExportDialogProps) {
+export function ExportDialog({ scene, project, onClose, onComplete, onError }: ExportDialogProps) {
   const [format, setFormat] = useState<ExportFormat>("md");
   const [targetPath, setTargetPath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,10 +54,11 @@ export function ExportDialog({ scene, onClose, onComplete, onError }: ExportDial
     try {
       let saved: string;
       if (format === "docx") {
-        saved = await writeDocxExport(targetPath, JSON.stringify(scene));
+        const exportScene = sceneToExportScene(scene, project);
+        saved = await writeDocxExport(targetPath, JSON.stringify(exportScene));
       } else {
         const content =
-          format === "md" ? sceneToMarkdown(scene) : sceneToPlainText(scene);
+          format === "md" ? sceneToMarkdown(scene, project) : sceneToPlainText(scene, project);
         saved = await writeTextExport(targetPath, content);
       }
       onComplete(saved, format);

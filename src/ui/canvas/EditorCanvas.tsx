@@ -1,7 +1,7 @@
 import { useEditorStore, useSelectedScene } from "../../state/editorStore";
 import { SceneEditor } from "../editor/SceneEditor";
+import { GlobalCharacterBar } from "../characters/GlobalCharacterBar";
 import { CharacterBar } from "./CharacterBar";
-import { ProjectTitle } from "./ProjectTitle";
 import { SceneTitle } from "./SceneTitle";
 
 export function EditorCanvas() {
@@ -21,7 +21,7 @@ export function EditorCanvas() {
   return (
     <div className="editor-canvas">
       <div className="editor-inner">
-        <ProjectTitle title={project.title} />
+        <GlobalCharacterBar />
         <SceneTitle title={scene ? scene.title : null} fallback={fallbackTitle} />
         {scene && <CharacterBar scene={scene} />}
         {scene ? (

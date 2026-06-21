@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
-  collectSceneCharacters,
+  collectSceneCharacterIds,
   createDialogueBlock,
   createNarrativeBlock,
-  predictNextCharacter,
+  predictNextCharacterId,
 } from "../ui/editor/inputStateMachine";
 
 describe("input state machine", () => {
@@ -12,41 +12,41 @@ describe("input state machine", () => {
     expect(block).toMatchObject({ type: "narrative", text: "他走进教室" });
   });
 
-  test("creates dialogue block with optional character", () => {
-    const withSpeaker = createDialogueBlock("男主", "你好");
-    expect(withSpeaker).toMatchObject({ type: "dialogue", character: "男主", text: "你好" });
+  test("creates dialogue block with optional characterId", () => {
+    const withSpeaker = createDialogueBlock("hero-id", "你好");
+    expect(withSpeaker).toMatchObject({ type: "dialogue", characterId: "hero-id", text: "你好" });
 
     const withoutSpeaker = createDialogueBlock(undefined, "嗯");
     expect(withoutSpeaker.type).toBe("dialogue");
-    expect(withoutSpeaker.character).toBeUndefined();
+    expect(withoutSpeaker.characterId).toBeUndefined();
     expect(withoutSpeaker.text).toBe("嗯");
 
     const blank = createDialogueBlock("   ", "");
-    expect(blank.character).toBeUndefined();
+    expect(blank.characterId).toBeUndefined();
   });
 
   test("predicts opposing speaker first", () => {
-    const suggestions = predictNextCharacter(
+    const suggestions = predictNextCharacterId(
       [
-        createDialogueBlock("男主", "A"),
-        createDialogueBlock("女主", "B"),
-        createDialogueBlock("男主", "C"),
+        createDialogueBlock("hero", "A"),
+        createDialogueBlock("heroine", "B"),
+        createDialogueBlock("hero", "C"),
       ],
-      ["男主", "女主", "老师"],
-      ["旁白"],
+      ["hero", "heroine", "teacher"],
+      ["narrator"],
     );
-    expect(suggestions[0]).toBe("女主");
+    expect(suggestions[0]).toBe("heroine");
   });
 
-  test("collects character list from dialogue blocks", () => {
-    const result = collectSceneCharacters(
+  test("collects character ids from dialogue blocks", () => {
+    const result = collectSceneCharacterIds(
       [
-        createDialogueBlock("男主", "你好"),
-        createDialogueBlock("女主", "你也好"),
+        createDialogueBlock("hero", "你好"),
+        createDialogueBlock("heroine", "你也好"),
         createDialogueBlock(undefined, "..."),
       ],
-      ["老师"],
+      ["teacher"],
     );
-    expect(result).toEqual(["老师", "男主", "女主"]);
+    expect(result).toEqual(["teacher", "hero", "heroine"]);
   });
 });

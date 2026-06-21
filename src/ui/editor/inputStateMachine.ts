@@ -12,16 +12,16 @@ export function createNarrativeBlock(text = ""): NarrativeBlock {
   };
 }
 
-export function createDialogueBlock(character?: string, text = ""): DialogueBlock {
+export function createDialogueBlock(characterId?: string, text = ""): DialogueBlock {
   return {
     id: randomId(),
     type: "dialogue",
-    character: character?.trim() ? character : undefined,
+    characterId: characterId?.trim() ? characterId : undefined,
     text,
   };
 }
 
-function uniquePush(list: string[], value: string): void {
+function uniquePushId(list: string[], value: string): void {
   if (!value.trim()) {
     return;
   }
@@ -30,29 +30,32 @@ function uniquePush(list: string[], value: string): void {
   }
 }
 
-export function collectSceneCharacters(blocks: SceneBlock[], seedCharacters: string[]): string[] {
-  const characters: string[] = [];
-  for (const value of seedCharacters) {
-    uniquePush(characters, value.trim());
+export function collectSceneCharacterIds(
+  blocks: SceneBlock[],
+  seedCharacterIds: string[],
+): string[] {
+  const characterIds: string[] = [];
+  for (const value of seedCharacterIds) {
+    uniquePushId(characterIds, value.trim());
   }
 
   for (const block of blocks) {
-    if (block.type === "dialogue" && block.character) {
-      uniquePush(characters, block.character.trim());
+    if (block.type === "dialogue" && block.characterId) {
+      uniquePushId(characterIds, block.characterId.trim());
     }
   }
-  return characters;
+  return characterIds;
 }
 
-export function predictNextCharacter(
+export function predictNextCharacterId(
   blocks: SceneBlock[],
-  sceneCharacters: string[],
-  globalCharacters: string[],
+  sceneCharacterIds: string[],
+  globalCharacterIds: string[],
 ): string[] {
   const dialogueSpeakers = blocks
     .filter((block): block is DialogueBlock => block.type === "dialogue")
-    .map((block) => (block.character ?? "").trim())
-    .filter((name) => name.length > 0);
+    .map((block) => (block.characterId ?? "").trim())
+    .filter((id) => id.length > 0);
 
   const candidates: string[] = [];
   const lastSpeaker = dialogueSpeakers.at(-1);
@@ -80,11 +83,11 @@ export function predictNextCharacter(
     }
   }
 
-  for (const character of sceneCharacters) {
-    candidates.push(character);
+  for (const characterId of sceneCharacterIds) {
+    candidates.push(characterId);
   }
-  for (const character of globalCharacters) {
-    candidates.push(character);
+  for (const characterId of globalCharacterIds) {
+    candidates.push(characterId);
   }
 
   const unique: string[] = [];
