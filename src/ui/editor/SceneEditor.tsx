@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BlockType, Character, DialogueBlock, NarrativeBlock, SceneBlock } from "../../domain/model";
 import { getCharacterName } from "../../domain/model";
+import { applyTextSelection } from "../../domain/navigation";
 import {
   useCurrentSceneCharacters,
   useEditorStore,
@@ -238,6 +239,8 @@ export function SceneEditor() {
   const project = useEditorStore((state) => state.project);
   const setSceneBlocks = useEditorStore((state) => state.setSceneBlocks);
   const updateDialogueCharacter = useEditorStore((state) => state.updateDialogueCharacter);
+  const navigationTarget = useEditorStore((state) => state.navigationTarget);
+  const clearNavigationTarget = useEditorStore((state) => state.clearNavigationTarget);
   const sceneCharacters = useCurrentSceneCharacters();
   const inputRefs = useRef<Record<string, FieldElement | null>>({});
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -278,6 +281,38 @@ export function SceneEditor() {
     }
     setPendingFocusId(null);
   }, [pendingFocusId, blocks]);
+
+  useEffect(() => {
+    if (!scene || !navigationTarget || navigationTarget.kind !== "block") return;
+    if (navigationTarget.sceneId !== scene.id) return;
+
+    const { blockId, matchStart, matchEnd } = navigationTarget;
+
+    const focusTarget = (): boolean => {
+      const node = inputRefs.current[blockId];
+      if (!node) return false;
+      node.scrollIntoView({ block: "center", behavior: "smooth" });
+      node.focus();
+      if (node.value === DIALOGUE_SCAFFOLD && matchStart === 0 && matchEnd === 0) {
+        node.setSelectionRange(1, 1);
+      } else {
+        applyTextSelection(node, matchStart, matchEnd);
+      }
+      clearNavigationTarget();
+      return true;
+    };
+
+    if (focusTarget()) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      if (!focusTarget()) {
+        window.setTimeout(() => {
+          focusTarget();
+        }, 0);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [navigationTarget, scene, blocks, clearNavigationTarget]);
 
   useEffect(() => {
     if (!pendingSpeakerMenuForId) return;

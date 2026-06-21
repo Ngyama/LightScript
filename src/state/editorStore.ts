@@ -11,6 +11,8 @@ import {
   type SceneBlock,
   type Selection,
 } from "../domain/model";
+import { navigationTargetFromSearchMatch, type NavigationTarget } from "../domain/navigation";
+import type { SearchMatch } from "../domain/searchProject";
 
 const randomId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
@@ -28,6 +30,7 @@ type GlobalCharacterPatch = Partial<Pick<Character, "name" | "color" | "memo">>;
 type EditorState = {
   project: Project;
   selection: Selection;
+  navigationTarget: NavigationTarget | null;
   isHydrated: boolean;
   setHydrated: (hydrated: boolean) => void;
   hydrateProject: (project: Project) => void;
@@ -51,6 +54,8 @@ type EditorState = {
   removeCharacterFromCurrentScene: (characterId: string) => void;
   createAndAddCharacterToCurrentScene: (name: string) => void;
   updateDialogueCharacter: (blockId: string, characterId?: string) => void;
+  navigateToSearchMatch: (match: SearchMatch) => void;
+  clearNavigationTarget: () => void;
 };
 
 function findScene(project: Project, sceneId?: string): Scene | undefined {
@@ -107,6 +112,7 @@ function clearCharacterFromProject(project: Project, characterId: string): Proje
 export const useEditorStore = create<EditorState>((set, get) => ({
   project: defaultProject,
   selection: defaultSelection,
+  navigationTarget: null,
   isHydrated: false,
   setHydrated: (hydrated) => set({ isHydrated: hydrated }),
   hydrateProject: (project) => {
@@ -471,6 +477,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       return { project: withInvariant(nextProject) };
     }),
+  navigateToSearchMatch: (match) =>
+    set((state) => ({
+      selection: {
+        projectId: state.project.id,
+        scriptId: match.scriptId,
+        sceneId: match.sceneId,
+      },
+      navigationTarget: navigationTargetFromSearchMatch(match),
+    })),
+  clearNavigationTarget: () => set({ navigationTarget: null }),
 }));
 
 export function useSelectedScene(): Scene | undefined {

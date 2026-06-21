@@ -553,6 +553,7 @@ export default function App() {
     <div className="app-frame">
       <TitleBar
         title={titleBarLabel}
+        showSearch={stage === "editor"}
         actions={
           stage === "editor"
             ? [

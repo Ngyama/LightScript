@@ -1,5 +1,6 @@
 import { Minus, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { TitleBarSearch } from "./TitleBarSearch";
 
 export interface TitleBarAction {
   label: string;
@@ -9,9 +10,10 @@ export interface TitleBarAction {
 interface TitleBarProps {
   title: string;
   actions?: TitleBarAction[];
+  showSearch?: boolean;
 }
 
-export function TitleBar({ title, actions }: TitleBarProps) {
+export function TitleBar({ title, actions, showSearch = false }: TitleBarProps) {
   const handleMinimize = () => {
     void getCurrentWindow().minimize();
   };
@@ -41,6 +43,11 @@ export function TitleBar({ title, actions }: TitleBarProps) {
           </nav>
         )}
       </div>
+      {showSearch && (
+        <div className="title-bar-center">
+          <TitleBarSearch />
+        </div>
+      )}
       <div className="title-bar-controls">
         <button
           type="button"
