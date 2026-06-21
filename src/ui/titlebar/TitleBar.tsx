@@ -1,11 +1,17 @@
 import { Minus, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-interface TitleBarProps {
-  title: string;
+export interface TitleBarAction {
+  label: string;
+  onClick: () => void;
 }
 
-export function TitleBar({ title }: TitleBarProps) {
+interface TitleBarProps {
+  title: string;
+  actions?: TitleBarAction[];
+}
+
+export function TitleBar({ title, actions }: TitleBarProps) {
   const handleMinimize = () => {
     void getCurrentWindow().minimize();
   };
@@ -16,8 +22,24 @@ export function TitleBar({ title }: TitleBarProps) {
 
   return (
     <div className="title-bar">
-      <div className="title-bar-drag" data-tauri-drag-region>
-        <span className="title-bar-label">{title}</span>
+      <div className="title-bar-left">
+        <div className="title-bar-drag" data-tauri-drag-region>
+          <span className="title-bar-label">{title}</span>
+        </div>
+        {actions && actions.length > 0 && (
+          <nav className="title-bar-actions" aria-label="Editor actions">
+            {actions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className="title-bar-pill"
+                onClick={action.onClick}
+              >
+                {action.label}
+              </button>
+            ))}
+          </nav>
+        )}
       </div>
       <div className="title-bar-controls">
         <button

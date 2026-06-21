@@ -26,6 +26,7 @@ export type SceneBlock = NarrativeBlock | DialogueBlock;
 export interface Scene {
   id: string;
   title: string;
+  outline: string;
   characterIds: string[];
   blocks: SceneBlock[];
 }
@@ -69,6 +70,7 @@ export function createDefaultProject(): Project {
   const introScene: Scene = {
     id: randomId(),
     title: "Scene 1",
+    outline: "",
     characterIds: [],
     blocks: [{ id: randomId(), type: "narrative", text: "" }],
   };
@@ -89,6 +91,10 @@ export function createDefaultProject(): Project {
       enableDialogueShortcut: true,
     },
   };
+}
+
+export function normalizeSceneOutline(outline: unknown): string {
+  return typeof outline === "string" ? outline : "";
 }
 
 function assertValidBlock(block: SceneBlock, validCharacterIds: Set<string>): void {
@@ -160,6 +166,10 @@ export function assertProjectInvariant(project: Project): void {
         throw new Error("Duplicate scene id.");
       }
       seenSceneIds.add(scene.id);
+
+      if (typeof scene.outline !== "string") {
+        throw new Error("Scene outline must be a string.");
+      }
 
       if (!Array.isArray(scene.characterIds)) {
         throw new Error("Scene characterIds must be an array.");
@@ -362,6 +372,7 @@ export function parseProject(raw: string): Project {
       const migratingScene: Scene & { characters?: unknown } = {
         id: scene.id,
         title: scene.title,
+        outline: normalizeSceneOutline(scene.outline),
         characterIds,
         blocks,
       };

@@ -1,5 +1,9 @@
 import type { Character, DialogueBlock, Project, Scene, SceneBlock } from "./model";
 
+function normalizeSceneOutline(outline: unknown): string {
+  return typeof outline === "string" ? outline : "";
+}
+
 const randomId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -203,6 +207,7 @@ export function migrateProjectCharacters(project: Project): Project {
       return {
         id: scene.id,
         title: scene.title,
+        outline: normalizeSceneOutline(scene.outline),
         characterIds,
         blocks,
       };
@@ -239,6 +244,7 @@ export function normalizeProjectCharacterReferences(project: Project): Project {
       return {
         id: scene.id,
         title: scene.title,
+        outline: normalizeSceneOutline(scene.outline),
         characterIds: normalizeCharacterIds([...characterIdSet]),
         blocks,
       };

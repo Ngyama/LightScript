@@ -38,6 +38,8 @@ body {
   display: flex;
   flex-direction: column;
   background: #fbfbfa;
+  --hud-inset-right: 24px;
+  --hud-inset-bottom: 16px;
 }
 
 .app-body {
@@ -167,9 +169,18 @@ body {
   -webkit-user-select: none;
 }
 
-.title-bar-drag {
+.title-bar-left {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.title-bar-drag {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(420px, 40vw);
   display: flex;
   align-items: center;
   padding-left: 14px;
@@ -183,6 +194,36 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+.title-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.title-bar-pill {
+  height: 22px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(31, 31, 31, 0.12);
+  background: rgba(255, 255, 255, 0.5);
+  color: rgba(31, 31, 31, 0.72);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.title-bar-pill:hover,
+.title-bar-pill:focus-visible {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(31, 31, 31, 0.2);
+  color: #1f1f1f;
+  outline: none;
 }
 
 .title-bar-controls {
@@ -386,6 +427,42 @@ body {
   color: rgba(31, 31, 31, 0.42);
 }
 
+.scene-outline {
+  margin: 0 0.5cm 12px;
+  padding: 0;
+}
+
+.scene-outline-input {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 14px;
+  border: 1px solid rgba(72, 98, 140, 0.08);
+  border-radius: 10px;
+  background: rgba(72, 98, 140, 0.02);
+  color: rgba(31, 31, 31, 0.72);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.scene-outline-input::placeholder {
+  color: rgba(72, 98, 140, 0.42);
+}
+
+.scene-outline-input:focus {
+  outline: none;
+  border-color: rgba(72, 98, 140, 0.16);
+  background: rgba(72, 98, 140, 0.035);
+}
+
 .editor-empty-hint {
   text-align: center;
   margin: 32px auto 0;
@@ -535,9 +612,8 @@ body {
 /* Global character bar — collapsible project roster */
 
 .global-character-bar {
-  margin: -4px auto 4px;
-  max-width: 1120px;
-  width: 100%;
+  margin: -4px 0.5cm 4px;
+  width: auto;
   user-select: none;
 }
 
@@ -711,92 +787,13 @@ body {
 }
 
 /* ============================================================
-   Floating actions (top-right) — hover expand pill buttons
-   ============================================================ */
-
-.floating-actions {
-  position: fixed;
-  top: 58px;
-  right: 24px;
-  display: flex;
-  gap: 8px;
-  z-index: 50;
-}
-
-.floating-action-button {
-  height: 36px;
-  width: 36px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  overflow: hidden;
-  gap: 0;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  color: #1f1f1f;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  white-space: nowrap;
-  transition:
-    width 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 180ms ease,
-    box-shadow 180ms ease;
-}
-
-.floating-action-button:hover,
-.floating-action-button:focus-visible {
-  width: 104px;
-  padding: 0 14px;
-  justify-content: flex-start;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
-  outline: none;
-}
-
-.floating-action-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.floating-action-icon {
-  flex-shrink: 0;
-}
-
-.floating-action-label {
-  max-width: 0;
-  margin-left: 0;
-  opacity: 0;
-  overflow: hidden;
-  transform: translateX(-4px);
-  transition:
-    max-width 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    margin-left 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 140ms ease,
-    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.floating-action-button:hover .floating-action-label,
-.floating-action-button:focus-visible .floating-action-label {
-  max-width: 80px;
-  margin-left: 8px;
-  opacity: 1;
-  transform: translateX(0);
-}
-
-/* ============================================================
    Saved status (bottom-right) — faint timestamp
    ============================================================ */
 
 .saved-status {
   position: fixed;
-  bottom: 16px;
-  right: 24px;
+  bottom: var(--hud-inset-bottom);
+  right: var(--hud-inset-right);
   font-size: 12px;
   color: #1f1f1f;
   opacity: 0.45;
@@ -829,15 +826,19 @@ body {
 }
 
 .scene-editor-stats {
-  flex-shrink: 0;
+  position: fixed;
+  right: var(--hud-inset-right);
+  bottom: calc(var(--hud-inset-bottom) + 1em + 6px);
   display: flex;
   justify-content: flex-end;
   gap: 16px;
-  margin-top: auto;
-  padding-top: 12px;
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.42);
+  color: #1f1f1f;
+  opacity: 0.45;
+  letter-spacing: 0.02em;
   user-select: none;
+  pointer-events: none;
+  z-index: 30;
 }
 
 .scene-editor-blocks {

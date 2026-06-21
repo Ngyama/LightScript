@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Home, Settings } from "lucide-react";
 import "./app.css";
 import {
   assertProjectInvariant,
@@ -24,8 +23,6 @@ import {
 import type { Scene } from "./domain/model";
 import { EditorCanvas } from "./ui/canvas/EditorCanvas";
 import { ExportDialog } from "./ui/floating/ExportDialog";
-import { FloatingActionBar } from "./ui/floating/FloatingActionBar";
-import { FloatingActionButton } from "./ui/floating/FloatingActionButton";
 import { ModalDialog } from "./ui/floating/ModalDialog";
 import { SettingsDialog } from "./ui/floating/SettingsDialog";
 import { SavedStatus } from "./ui/floating/SavedStatus";
@@ -533,11 +530,6 @@ export default function App() {
       <div className="app-shell">
         <EditorCanvas />
         <OrbitNavigator />
-        <FloatingActionBar>
-          <FloatingActionButton icon={Download} label="Export" onClick={handleExport} />
-          <FloatingActionButton icon={Home} label="Hub" onClick={handleHub} />
-          <FloatingActionButton icon={Settings} label="Settings" onClick={handleSettings} />
-        </FloatingActionBar>
         <SavedStatus text={saveInfo} />
         {errorMessage && <p className="error global-error">{errorMessage}</p>}
         {exportTargetScene && (
@@ -559,7 +551,18 @@ export default function App() {
 
   return (
     <div className="app-frame">
-      <TitleBar title={titleBarLabel} />
+      <TitleBar
+        title={titleBarLabel}
+        actions={
+          stage === "editor"
+            ? [
+                { label: "Export", onClick: handleExport },
+                { label: "Hub", onClick: handleHub },
+                { label: "Settings", onClick: handleSettings },
+              ]
+            : undefined
+        }
+      />
       <div className="app-body">
         <div className="stage-stack">
           {prevStage && (
