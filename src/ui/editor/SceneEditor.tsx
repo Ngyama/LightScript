@@ -16,6 +16,34 @@ const SPEAKER_MENU_MAX_HEIGHT = 220;
 const DIALOGUE_SCAFFOLD = "「」";
 const SPEAKER_HOTKEY = "Tab";
 
+function isPlainTabKey(event: React.KeyboardEvent | KeyboardEvent): boolean {
+  return (
+    event.key === SPEAKER_HOTKEY &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.shiftKey
+  );
+}
+
+function canOpenSpeakerMenu(isQuoteMode: boolean, sceneCharacterCount: number): boolean {
+  return !isQuoteMode && sceneCharacterCount >= 2;
+}
+
+/** Keep focus in the block field unless plain Tab opens the speaker menu. */
+function handleEditorTabKey(
+  event: React.KeyboardEvent,
+  options: { allowSpeakerHotkey: boolean; onSpeakerHotkey?: () => void },
+): void {
+  if (event.key !== SPEAKER_HOTKEY) return;
+  if (options.allowSpeakerHotkey && isPlainTabKey(event)) {
+    event.preventDefault();
+    options.onSpeakerHotkey?.();
+    return;
+  }
+  event.preventDefault();
+}
+
 function isDialogueEmpty(text: string): boolean {
   return text.trim().length === 0 || text === DIALOGUE_SCAFFOLD;
 }
@@ -178,6 +206,7 @@ function SpeakerChip({ displayName, isOpen, onToggle, registerAnchor }: SpeakerC
 
 interface DialogueBlockRowProps {
   block: DialogueBlock;
+  showSpeaker: boolean;
   speakerName: string | undefined;
   registerRef: (id: string, node: HTMLTextAreaElement | null) => void;
   registerChipAnchor: (id: string, node: HTMLButtonElement | null) => void;
@@ -189,6 +218,7 @@ interface DialogueBlockRowProps {
 
 function DialogueBlockRow({
   block,
+  showSpeaker,
   speakerName,
   registerRef,
   registerChipAnchor,
@@ -208,13 +238,15 @@ function DialogueBlockRow({
 
   return (
     <div className="block-editor-row">
-      <div className="block-editor-gutter">
-        <SpeakerChip
-          displayName={speakerName}
-          isOpen={speakerMenuOpen}
-          onToggle={(anchor) => onSpeakerToggle(block.id, anchor)}
-          registerAnchor={(node) => registerChipAnchor(block.id, node)}
-        />
+      <div className="block-editor-gutter" aria-hidden={!showSpeaker}>
+        {showSpeaker ? (
+          <SpeakerChip
+            displayName={speakerName}
+            isOpen={speakerMenuOpen}
+            onToggle={(anchor) => onSpeakerToggle(block.id, anchor)}
+            registerAnchor={(node) => registerChipAnchor(block.id, node)}
+          />
+        ) : null}
       </div>
       <div className="block-editor-content">
         <textarea
@@ -242,6 +274,7 @@ export function SceneEditor() {
   const navigationTarget = useEditorStore((state) => state.navigationTarget);
   const clearNavigationTarget = useEditorStore((state) => state.clearNavigationTarget);
   const sceneCharacters = useCurrentSceneCharacters();
+  const isQuoteMode = project.settings.writingMode === "quote";
   const inputRefs = useRef<Record<string, FieldElement | null>>({});
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
@@ -266,6 +299,12 @@ export function SceneEditor() {
       setSceneBlocks(scene.id, [createNarrativeBlock()]);
     }
   }, [scene, setSceneBlocks]);
+
+  useEffect(() => {
+    if (!isQuoteMode) return;
+    setSpeakerMenu(null);
+    setPendingSpeakerMenuForId(null);
+  }, [isQuoteMode]);
 
   useEffect(() => {
     if (!pendingFocusId) return;
@@ -414,12 +453,14 @@ export function SceneEditor() {
   };
 
   const insertDialogueAfter = (index: number) => {
-    const nextSpeakerId = pickNextSpeakerId(blocks, index + 1, rosterIds);
+    const nextSpeakerId = isQuoteMode
+      ? undefined
+      : pickNextSpeakerId(blocks, index + 1, rosterIds);
     const newBlock = createDialogueBlock(nextSpeakerId, DIALOGUE_SCAFFOLD);
     const next = [...blocks.slice(0, index + 1), newBlock, ...blocks.slice(index + 1)];
     persistBlocks(next);
     setPendingFocusId(newBlock.id);
-    if (!nextSpeakerId && sceneCharacters.length >= 2) {
+    if (!isQuoteMode && !nextSpeakerId && sceneCharacters.length >= 2) {
       setPendingSpeakerMenuForId(newBlock.id);
     }
   };
@@ -455,13 +496,15 @@ export function SceneEditor() {
     }
 
     let autoOpenMenu = false;
-    if (newType === "dialogue" && nextBlock.type === "dialogue") {
+    if (!isQuoteMode && newType === "dialogue" && nextBlock.type === "dialogue") {
       const auto = pickNextSpeakerId(blocks, index, rosterIds);
       if (auto) {
         nextBlock = { ...nextBlock, characterId: auto };
       } else if (sceneCharacters.length >= 2) {
         autoOpenMenu = true;
       }
+    } else if (isQuoteMode && newType === "dialogue" && nextBlock.type === "dialogue") {
+      nextBlock = { ...nextBlock, characterId: undefined };
     }
 
     const next = [...blocks];
@@ -596,6 +639,8 @@ export function SceneEditor() {
                           if (focusFromCurrent(event.currentTarget, "next", index)) {
                             event.preventDefault();
                           }
+                        } else {
+                          handleEditorTabKey(event, { allowSpeakerHotkey: false });
                         }
                       }}
                     />
@@ -610,6 +655,7 @@ export function SceneEditor() {
               <DialogueBlockRow
                 key={block.id}
                 block={block}
+                showSpeaker={!isQuoteMode}
                 speakerName={speakerName}
                 registerRef={registerRef}
                 registerChipAnchor={registerChipAnchor}
@@ -643,21 +689,18 @@ export function SceneEditor() {
                         event.preventDefault();
                       }
                     }
-                  } else if (
-                    event.key === SPEAKER_HOTKEY &&
-                    !event.ctrlKey &&
-                    !event.metaKey &&
-                    !event.altKey &&
-                    !event.shiftKey &&
-                    sceneCharacters.length >= 2
-                  ) {
-                    event.preventDefault();
-                    const anchor = chipRefs.current[block.id];
-                    if (anchor) {
-                      openSpeakerMenuForBlock(block.id, anchor);
-                    } else {
-                      setPendingSpeakerMenuForId(block.id);
-                    }
+                  } else {
+                    handleEditorTabKey(event, {
+                      allowSpeakerHotkey: canOpenSpeakerMenu(isQuoteMode, sceneCharacters.length),
+                      onSpeakerHotkey: () => {
+                        const anchor = chipRefs.current[block.id];
+                        if (anchor) {
+                          openSpeakerMenuForBlock(block.id, anchor);
+                        } else {
+                          setPendingSpeakerMenuForId(block.id);
+                        }
+                      },
+                    });
                   }
                 }}
               />
@@ -669,7 +712,7 @@ export function SceneEditor() {
           <span>{lineCount} 行</span>
         </footer>
       </div>
-      {speakerMenu &&
+      {speakerMenu && !isQuoteMode &&
         (() => {
           const targetBlock = blocks.find((b) => b.id === speakerMenu.blockId);
           if (!targetBlock || targetBlock.type !== "dialogue") return null;

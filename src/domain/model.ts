@@ -44,6 +44,8 @@ export interface Character {
   memo?: string;
 }
 
+export type WritingMode = "character" | "quote";
+
 export interface Project {
   id: string;
   title: string;
@@ -51,7 +53,7 @@ export interface Project {
   scripts: Script[];
   characters: Character[];
   settings: {
-    enableDialogueShortcut: boolean;
+    writingMode: WritingMode;
   };
 }
 
@@ -88,9 +90,21 @@ export function createDefaultProject(): Project {
     scripts: [openingScript],
     characters: [],
     settings: {
-      enableDialogueShortcut: true,
+      writingMode: "character",
     },
   };
+}
+
+export function normalizeWritingMode(value: unknown): WritingMode {
+  return value === "quote" ? "quote" : "character";
+}
+
+export function normalizeProjectSettings(settings: unknown): Project["settings"] {
+  if (!settings || typeof settings !== "object") {
+    return { writingMode: "character" };
+  }
+  const raw = settings as { writingMode?: unknown };
+  return { writingMode: normalizeWritingMode(raw.writingMode) };
 }
 
 export function normalizeSceneOutline(outline: unknown): string {
@@ -390,7 +404,7 @@ export function parseProject(raw: string): Project {
       worldbuilding: parsed.worldbuilding,
       scripts,
       characters: normalizeProjectCharacters(parsed.characters),
-      settings: parsed.settings ?? { enableDialogueShortcut: true },
+      settings: normalizeProjectSettings(parsed.settings),
     };
 
   const migrated = migrateProjectCharacters(interim);

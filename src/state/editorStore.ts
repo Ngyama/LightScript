@@ -10,6 +10,7 @@ import {
   type Scene,
   type SceneBlock,
   type Selection,
+  type WritingMode,
 } from "../domain/model";
 import { navigationTargetFromSearchMatch, type NavigationTarget } from "../domain/navigation";
 import type { SearchMatch } from "../domain/searchProject";
@@ -56,6 +57,7 @@ type EditorState = {
   updateDialogueCharacter: (blockId: string, characterId?: string) => void;
   navigateToSearchMatch: (match: SearchMatch) => void;
   clearNavigationTarget: () => void;
+  setWritingMode: (mode: WritingMode) => void;
 };
 
 function findScene(project: Project, sceneId?: string): Scene | undefined {
@@ -487,6 +489,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       navigationTarget: navigationTargetFromSearchMatch(match),
     })),
   clearNavigationTarget: () => set({ navigationTarget: null }),
+  setWritingMode: (writingMode) =>
+    set((state) => ({
+      project: withInvariant({
+        ...state.project,
+        settings: { writingMode },
+      }),
+    })),
 }));
 
 export function useSelectedScene(): Scene | undefined {

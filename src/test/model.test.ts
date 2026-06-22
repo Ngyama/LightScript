@@ -297,6 +297,22 @@ describe("project migration", () => {
   });
 });
 
+describe("project settings", () => {
+  test("parseProject defaults missing writingMode to character", () => {
+    const project = createDefaultProject();
+    const raw = JSON.stringify({ ...project, settings: {} });
+    const parsed = parseProject(raw);
+    expect(parsed.settings.writingMode).toBe("character");
+  });
+
+  test("parseProject preserves quote writingMode", () => {
+    const project = createDefaultProject();
+    const raw = JSON.stringify({ ...project, settings: { writingMode: "quote" } });
+    const parsed = parseProject(raw);
+    expect(parsed.settings.writingMode).toBe("quote");
+  });
+});
+
 describe("editor store character actions", () => {
   test("deleteGlobalCharacter clears scene rosters and dialogue references", () => {
     const project = createDefaultProject();
@@ -340,5 +356,14 @@ describe("editor store character actions", () => {
     expect(next.characters.some((entry) => entry.id === heroId)).toBe(true);
     expect(next.scripts[0].scenes[0].characterIds).not.toContain(heroId);
     expect(next.scripts[0].scenes[0].blocks[0]).toMatchObject({ characterId: undefined });
+  });
+
+  test("setWritingMode updates project settings", () => {
+    const project = createDefaultProject();
+    useEditorStore.getState().hydrateProject(project);
+    expect(useEditorStore.getState().project.settings.writingMode).toBe("character");
+
+    useEditorStore.getState().setWritingMode("quote");
+    expect(useEditorStore.getState().project.settings.writingMode).toBe("quote");
   });
 });

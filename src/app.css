@@ -1453,6 +1453,13 @@ textarea.block-input,
   cursor: not-allowed;
 }
 
+.settings-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(31, 31, 31, 0.5);
+}
+
 .settings-footer {
   display: flex;
   align-items: center;
