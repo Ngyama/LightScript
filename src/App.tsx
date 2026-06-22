@@ -220,20 +220,29 @@ export default function App() {
     setProjectList(projects);
   };
 
-  const handleRepoSave = async () => {
-    const trimmedPath = repoPath.trim();
+  const applyRepoPathChange = async (nextPath: string): Promise<boolean> => {
+    const trimmedPath = nextPath.trim();
     if (!trimmedPath) {
       setErrorMessage("Repository path cannot be empty.");
-      return;
+      return false;
     }
     try {
       await setRepoPath(trimmedPath);
       setErrorMessage(null);
       setRepoPathInput(trimmedPath);
+      setActiveProjectPath(null);
       await refreshProjectList();
-      setStage("projectHub");
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to save repository path.");
+      return false;
+    }
+  };
+
+  const handleRepoSave = async () => {
+    const ok = await applyRepoPathChange(repoPath);
+    if (ok) {
+      setStage("projectHub");
     }
   };
 
@@ -241,8 +250,7 @@ export default function App() {
     try {
       const selected = await pickDirectory();
       if (selected) {
-        setRepoPathInput(selected);
-        setErrorMessage(null);
+        await applyRepoPathChange(selected);
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to open directory picker.");
