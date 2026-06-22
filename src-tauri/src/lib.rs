@@ -395,6 +395,9 @@ pub fn run() {
       write_docx_export
     ])
     .setup(|app| {
+      if let Some(window) = app.get_webview_window("main") {
+        window.set_icon(tauri::include_image!("icons/32x32.png"))?;
+      }
       app.handle().plugin(tauri_plugin_dialog::init())?;
       if cfg!(debug_assertions) {
         app.handle().plugin(

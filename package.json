@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "tauri:icon": "tauri icon assets/icon.png -o src-tauri/icons",
     "test": "vitest run"
   },
   "devDependencies": {
