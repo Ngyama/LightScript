@@ -13,6 +13,16 @@ interface TitleBarProps {
   showSearch?: boolean;
 }
 
+function TitleBarDragRegion({ className = "" }: { className?: string }) {
+  return (
+    <div
+      className={`title-bar-drag title-bar-drag--flex ${className}`.trim()}
+      data-tauri-drag-region
+      aria-hidden="true"
+    />
+  );
+}
+
 export function TitleBar({ title, actions, showSearch = false }: TitleBarProps) {
   const handleMinimize = () => {
     void getCurrentWindow().minimize();
@@ -24,30 +34,30 @@ export function TitleBar({ title, actions, showSearch = false }: TitleBarProps) 
 
   return (
     <div className="title-bar">
-      <div className="title-bar-left">
-        <div className="title-bar-drag" data-tauri-drag-region>
-          <span className="title-bar-label">{title}</span>
-        </div>
-        {actions && actions.length > 0 && (
-          <nav className="title-bar-actions" aria-label="Editor actions">
-            {actions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className="title-bar-pill"
-                onClick={action.onClick}
-              >
-                {action.label}
-              </button>
-            ))}
-          </nav>
-        )}
+      <div className="title-bar-drag title-bar-drag--title" data-tauri-drag-region>
+        <span className="title-bar-label">{title}</span>
       </div>
+      {actions && actions.length > 0 && (
+        <nav className="title-bar-actions" aria-label="Editor actions">
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              className="title-bar-pill"
+              onClick={action.onClick}
+            >
+              {action.label}
+            </button>
+          ))}
+        </nav>
+      )}
+      <TitleBarDragRegion />
       {showSearch && (
-        <div className="title-bar-center">
+        <div className="title-bar-search-slot">
           <TitleBarSearch />
         </div>
       )}
+      {showSearch && <TitleBarDragRegion />}
       <div className="title-bar-controls">
         <button
           type="button"
