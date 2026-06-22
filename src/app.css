@@ -1032,6 +1032,14 @@ body {
   color: rgba(31, 31, 31, 0.3);
 }
 
+input.block-input-single-line {
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 textarea.block-input,
 .block-input-textarea {
   resize: none;

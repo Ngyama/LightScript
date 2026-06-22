@@ -8,6 +8,10 @@ import {
   useSelectedScene,
 } from "../../state/editorStore";
 import { characterChipStyle } from "../characterPalette";
+import {
+  textFitsBlockLineWidth,
+  truncateToBlockLineWidth,
+} from "./blockLineMeasure";
 import { createDialogueBlock, createNarrativeBlock } from "./inputStateMachine";
 import { computeSceneStats } from "./sceneStats";
 
@@ -204,6 +208,123 @@ function SpeakerChip({ displayName, isOpen, onToggle, registerAnchor }: SpeakerC
   );
 }
 
+interface PendingFocus {
+  blockId: string;
+  caret: number;
+}
+
+interface NarrativeBlockRowProps {
+  block: NarrativeBlock;
+  registerRef: (id: string, node: HTMLInputElement | null) => void;
+  onTextChange: (value: string) => void;
+  onEnter: (input: HTMLInputElement) => void;
+  onBackspaceEmpty: () => boolean;
+  onArrowUp: (input: HTMLInputElement) => boolean;
+  onArrowDown: (input: HTMLInputElement) => boolean;
+}
+
+function NarrativeBlockRow({
+  block,
+  registerRef,
+  onTextChange,
+  onEnter,
+  onBackspaceEmpty,
+  onArrowUp,
+  onArrowDown,
+}: NarrativeBlockRowProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const composingRef = useRef(false);
+  const onTextChangeRef = useRef(onTextChange);
+  onTextChangeRef.current = onTextChange;
+
+  useLayoutEffect(() => {
+    const node = inputRef.current;
+    if (!node) return;
+
+    const clampIfNeeded = (): void => {
+      const fitted = truncateToBlockLineWidth(block.text, node);
+      if (fitted !== block.text) {
+        onTextChangeRef.current(fitted);
+      }
+    };
+
+    clampIfNeeded();
+    const observer = new ResizeObserver(clampIfNeeded);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [block.text]);
+
+  const tryCommitText = (value: string, input: HTMLInputElement): void => {
+    if (composingRef.current) {
+      onTextChange(value);
+      return;
+    }
+    if (!textFitsBlockLineWidth(value, input)) return;
+    onTextChange(value);
+  };
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>): void => {
+    event.preventDefault();
+    const input = event.currentTarget;
+    const paste = event.clipboardData.getData("text");
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    const merged = `${input.value.slice(0, start)}${paste}${input.value.slice(end)}`;
+    const fitted = truncateToBlockLineWidth(merged, input);
+    tryCommitText(fitted, input);
+    const caret = Math.min(start + paste.length, fitted.length);
+    window.requestAnimationFrame(() => {
+      input.setSelectionRange(caret, caret);
+    });
+  };
+
+  return (
+    <div className="block-editor-row">
+      <div className="block-editor-gutter" aria-hidden="true" />
+      <div className="block-editor-content">
+        <input
+          ref={(node) => {
+            inputRef.current = node;
+            registerRef(block.id, node);
+          }}
+          className="block-input block-input-single-line"
+          value={block.text}
+          onChange={(event) => tryCommitText(event.target.value, event.target)}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={(event) => {
+            composingRef.current = false;
+            const fitted = truncateToBlockLineWidth(event.currentTarget.value, event.currentTarget);
+            onTextChange(fitted);
+          }}
+          onPaste={handlePaste}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onEnter(event.currentTarget);
+            } else if (event.key === "Backspace" && event.currentTarget.value === "") {
+              if (onBackspaceEmpty()) {
+                event.preventDefault();
+              }
+            } else if (event.key === "ArrowUp") {
+              if (onArrowUp(event.currentTarget)) {
+                event.preventDefault();
+              }
+            } else if (event.key === "ArrowDown") {
+              if (onArrowDown(event.currentTarget)) {
+                event.preventDefault();
+              }
+            } else {
+              handleEditorTabKey(event, { allowSpeakerHotkey: false });
+            }
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 interface DialogueBlockRowProps {
   block: DialogueBlock;
   showSpeaker: boolean;
@@ -277,7 +398,7 @@ export function SceneEditor() {
   const isQuoteMode = project.settings.writingMode === "quote";
   const inputRefs = useRef<Record<string, FieldElement | null>>({});
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
+  const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null);
   const [pendingSpeakerMenuForId, setPendingSpeakerMenuForId] = useState<string | null>(null);
   const [speakerMenu, setSpeakerMenu] = useState<SpeakerMenuState | null>(null);
 
@@ -307,19 +428,19 @@ export function SceneEditor() {
   }, [isQuoteMode]);
 
   useEffect(() => {
-    if (!pendingFocusId) return;
-    const node = inputRefs.current[pendingFocusId];
+    if (!pendingFocus) return;
+    const node = inputRefs.current[pendingFocus.blockId];
     if (node) {
       node.focus();
       if (node.value === DIALOGUE_SCAFFOLD) {
         node.setSelectionRange(1, 1);
       } else {
-        const len = node.value.length;
-        node.setSelectionRange(len, len);
+        const caret = Math.min(pendingFocus.caret, node.value.length);
+        node.setSelectionRange(caret, caret);
       }
     }
-    setPendingFocusId(null);
-  }, [pendingFocusId, blocks]);
+    setPendingFocus(null);
+  }, [pendingFocus, blocks]);
 
   useEffect(() => {
     if (!scene || !navigationTarget || navigationTarget.kind !== "block") return;
@@ -445,11 +566,38 @@ export function SceneEditor() {
     updateDialogueCharacter(blockId, characterId);
   };
 
-  const insertNarrativeAfter = (index: number) => {
-    const newBlock = createNarrativeBlock();
+  const insertNarrativeAfter = (index: number, initialText = "") => {
+    const newBlock = createNarrativeBlock(initialText);
     const next = [...blocks.slice(0, index + 1), newBlock, ...blocks.slice(index + 1)];
     persistBlocks(next);
-    setPendingFocusId(newBlock.id);
+    setPendingFocus({ blockId: newBlock.id, caret: initialText.length });
+  };
+
+  const splitNarrativeAt = (index: number, caretPos: number) => {
+    const current = blocks[index];
+    if (!current || current.type !== "narrative") return;
+    const before = current.text.slice(0, caretPos);
+    const after = current.text.slice(caretPos);
+    const newBlock = createNarrativeBlock(after);
+    const next = [...blocks];
+    next[index] = { ...current, text: before };
+    next.splice(index + 1, 0, newBlock);
+    persistBlocks(next);
+    setPendingFocus({ blockId: newBlock.id, caret: 0 });
+  };
+
+  const handleNarrativeEnter = (index: number, input: HTMLInputElement) => {
+    const value = input.value;
+    if (value.trim().length === 0) {
+      convertBlockType(index, "dialogue");
+      return;
+    }
+    const caret = input.selectionStart ?? value.length;
+    if (caret < value.length) {
+      splitNarrativeAt(index, caret);
+      return;
+    }
+    insertNarrativeAfter(index);
   };
 
   const insertDialogueAfter = (index: number) => {
@@ -459,7 +607,7 @@ export function SceneEditor() {
     const newBlock = createDialogueBlock(nextSpeakerId, DIALOGUE_SCAFFOLD);
     const next = [...blocks.slice(0, index + 1), newBlock, ...blocks.slice(index + 1)];
     persistBlocks(next);
-    setPendingFocusId(newBlock.id);
+    setPendingFocus({ blockId: newBlock.id, caret: 1 });
     if (!isQuoteMode && !nextSpeakerId && sceneCharacters.length >= 2) {
       setPendingSpeakerMenuForId(newBlock.id);
     }
@@ -472,7 +620,11 @@ export function SceneEditor() {
     const focusIndex = index > 0 ? index - 1 : 0;
     const focusBlock = next[focusIndex];
     if (focusBlock) {
-      setPendingFocusId(focusBlock.id);
+      const caret =
+        focusBlock.type === "dialogue" && focusBlock.text === DIALOGUE_SCAFFOLD
+          ? 1
+          : focusBlock.text.length;
+      setPendingFocus({ blockId: focusBlock.id, caret });
     }
     return true;
   };
@@ -510,7 +662,11 @@ export function SceneEditor() {
     const next = [...blocks];
     next[index] = nextBlock;
     persistBlocks(next);
-    setPendingFocusId(current.id);
+    const focusCaret =
+      nextBlock.type === "dialogue" && nextBlock.text === DIALOGUE_SCAFFOLD
+        ? 1
+        : nextBlock.text.length;
+    setPendingFocus({ blockId: current.id, caret: focusCaret });
     if (autoOpenMenu) {
       setPendingSpeakerMenuForId(current.id);
     }
@@ -608,44 +764,16 @@ export function SceneEditor() {
           {blocks.map((block, index) => {
             if (block.type === "narrative") {
               return (
-                <div key={block.id} className="block-editor-row">
-                  <div className="block-editor-gutter" aria-hidden="true" />
-                  <div className="block-editor-content">
-                    <input
-                      ref={(node) => registerRef(block.id, node)}
-                      className="block-input"
-                      value={block.text}
-                      onChange={(event) => updateNarrativeText(index, event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && !event.shiftKey) {
-                          event.preventDefault();
-                          if (event.currentTarget.value.trim().length > 0) {
-                            insertNarrativeAfter(index);
-                          } else {
-                            convertBlockType(index, "dialogue");
-                          }
-                        } else if (
-                          event.key === "Backspace" &&
-                          event.currentTarget.value === ""
-                        ) {
-                          if (deleteBlockAt(index)) {
-                            event.preventDefault();
-                          }
-                        } else if (event.key === "ArrowUp") {
-                          if (focusFromCurrent(event.currentTarget, "prev", index)) {
-                            event.preventDefault();
-                          }
-                        } else if (event.key === "ArrowDown") {
-                          if (focusFromCurrent(event.currentTarget, "next", index)) {
-                            event.preventDefault();
-                          }
-                        } else {
-                          handleEditorTabKey(event, { allowSpeakerHotkey: false });
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
+                <NarrativeBlockRow
+                  key={block.id}
+                  block={block}
+                  registerRef={registerRef}
+                  onTextChange={(value) => updateNarrativeText(index, value)}
+                  onEnter={(input) => handleNarrativeEnter(index, input)}
+                  onBackspaceEmpty={() => deleteBlockAt(index)}
+                  onArrowUp={(input) => focusFromCurrent(input, "prev", index)}
+                  onArrowDown={(input) => focusFromCurrent(input, "next", index)}
+                />
               );
             }
 
