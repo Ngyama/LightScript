@@ -182,16 +182,19 @@ interface SpeakerMenuState {
 
 interface SpeakerChipProps {
   displayName: string | undefined;
+  color?: string;
   isOpen: boolean;
   onToggle: (anchor: HTMLButtonElement | null) => void;
   registerAnchor?: (node: HTMLButtonElement | null) => void;
 }
 
-function SpeakerChip({ displayName, isOpen, onToggle, registerAnchor }: SpeakerChipProps) {
+function SpeakerChip({ displayName, color, isOpen, onToggle, registerAnchor }: SpeakerChipProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const empty = !displayName || displayName.trim().length === 0;
   const display = empty ? "未选" : displayName.trim();
-  const colorStyle = empty ? undefined : (characterChipStyle(displayName) as React.CSSProperties);
+  const colorStyle = empty
+    ? undefined
+    : (characterChipStyle({ name: displayName, color }) as React.CSSProperties);
   return (
     <button
       ref={(node) => {
@@ -329,6 +332,7 @@ interface DialogueBlockRowProps {
   block: DialogueBlock;
   showSpeaker: boolean;
   speakerName: string | undefined;
+  speakerColor?: string;
   registerRef: (id: string, node: HTMLTextAreaElement | null) => void;
   registerChipAnchor: (id: string, node: HTMLButtonElement | null) => void;
   speakerMenuOpen: boolean;
@@ -341,6 +345,7 @@ function DialogueBlockRow({
   block,
   showSpeaker,
   speakerName,
+  speakerColor,
   registerRef,
   registerChipAnchor,
   speakerMenuOpen,
@@ -363,6 +368,7 @@ function DialogueBlockRow({
         {showSpeaker ? (
           <SpeakerChip
             displayName={speakerName}
+            color={speakerColor}
             isOpen={speakerMenuOpen}
             onToggle={(anchor) => onSpeakerToggle(block.id, anchor)}
             registerAnchor={(node) => registerChipAnchor(block.id, node)}
@@ -778,6 +784,7 @@ export function SceneEditor() {
             }
 
             const speakerName = getCharacterName(project, block.characterId);
+            const speaker = project.characters.find((entry) => entry.id === block.characterId);
 
             return (
               <DialogueBlockRow
@@ -785,6 +792,7 @@ export function SceneEditor() {
                 block={block}
                 showSpeaker={!isQuoteMode}
                 speakerName={speakerName}
+                speakerColor={speaker?.color}
                 registerRef={registerRef}
                 registerChipAnchor={registerChipAnchor}
                 speakerMenuOpen={speakerMenu?.blockId === block.id}

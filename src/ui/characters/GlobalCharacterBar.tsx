@@ -88,7 +88,7 @@ export function GlobalCharacterBar() {
               <span
                 key={character.id}
                 className="character-chip character-chip--compact"
-                style={characterChipStyle(character.name) as React.CSSProperties}
+                style={characterChipStyle(character) as React.CSSProperties}
               >
                 {character.name}
               </span>
@@ -116,7 +116,7 @@ export function GlobalCharacterBar() {
                   <span
                     key={character.id}
                     className="character-chip character-chip--editing"
-                    style={characterChipStyle(renameDraft || character.name) as React.CSSProperties}
+                    style={characterChipStyle({ name: renameDraft, color: character.color }) as React.CSSProperties}
                   >
                     <input
                       ref={renameInputRef}
@@ -142,7 +142,7 @@ export function GlobalCharacterBar() {
                 <span
                   key={character.id}
                   className="character-chip"
-                  style={characterChipStyle(character.name) as React.CSSProperties}
+                  style={characterChipStyle(character) as React.CSSProperties}
                 >
                   <button
                     type="button"

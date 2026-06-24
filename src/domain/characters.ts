@@ -1,4 +1,9 @@
 import type { Character, DialogueBlock, Project, Scene, SceneBlock } from "./model";
+import {
+  formatCharacterHue,
+  parseCharacterHue,
+  pickDistinctHue,
+} from "./characterColors";
 
 function normalizeSceneOutline(outline: unknown): string {
   return typeof outline === "string" ? outline : "";
@@ -8,8 +13,40 @@ const randomId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-export function createCharacter(name: string, id = randomId()): Character {
-  return { id, name: name.trim() };
+function collectCharacterHues(characters: readonly Character[]): number[] {
+  const hues: number[] = [];
+  for (const character of characters) {
+    const hue = parseCharacterHue(character.color);
+    if (hue !== null) {
+      hues.push(hue);
+    }
+  }
+  return hues;
+}
+
+export function ensureCharacterColors(characters: Character[]): Character[] {
+  const usedHues: number[] = [];
+  return characters.map((character) => {
+    const parsed = parseCharacterHue(character.color);
+    if (parsed !== null) {
+      const color = formatCharacterHue(parsed);
+      usedHues.push(parsed);
+      return color === character.color ? character : { ...character, color };
+    }
+    const hue = pickDistinctHue(usedHues);
+    usedHues.push(hue);
+    return { ...character, color: formatCharacterHue(hue) };
+  });
+}
+
+export function createCharacter(
+  name: string,
+  options?: { id?: string; existingCharacters?: readonly Character[] },
+): Character {
+  const id = options?.id ?? randomId();
+  const trimmed = name.trim();
+  const hue = pickDistinctHue(collectCharacterHues(options?.existingCharacters ?? []));
+  return { id, name: trimmed, color: formatCharacterHue(hue) };
 }
 
 export function getCharacterById(project: Project, characterId?: string): Character | undefined {
@@ -75,7 +112,7 @@ export function normalizeProjectCharacters(characters: unknown): Character[] {
     }
     result.push(character);
   }
-  return result;
+  return ensureCharacterColors(result);
 }
 
 interface NameRegistry {
@@ -100,7 +137,7 @@ function ensureNameInRegistry(registry: NameRegistry, name: string): string {
   }
   const existing = registry.nameToId.get(trimmed);
   if (existing) return existing;
-  const created = createCharacter(trimmed);
+  const created = createCharacter(trimmed, { existingCharacters: registry.characters });
   registry.characters.push(created);
   registry.nameToId.set(trimmed, created.id);
   return created.id;
@@ -266,7 +303,7 @@ export function ensureGlobalCharacterInProject(project: Project, name: string): 
   if (existing) {
     return { project, characterId: existing.id };
   }
-  const created = createCharacter(trimmed);
+  const created = createCharacter(trimmed, { existingCharacters: project.characters });
   return {
     project: {
       ...project,

@@ -53,7 +53,7 @@ export function CharacterBar({ scene }: CharacterBarProps) {
         <span
           key={`${scene.id}-${character.id}`}
           className="character-chip"
-          style={characterChipStyle(character.name) as React.CSSProperties}
+          style={characterChipStyle(character) as React.CSSProperties}
         >
           <span className="character-chip-name">{character.name}</span>
           <button
