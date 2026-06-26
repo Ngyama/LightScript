@@ -61,6 +61,7 @@ export default function App() {
   const [saveInfo, setSaveInfo] = useState("Not saved yet");
   const [stage, setStage] = useState<AppStage>("splash");
   const [exportTargetScene, setExportTargetScene] = useState<Scene | null>(null);
+  const selection = useEditorStore((state) => state.selection);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [repoPath, setRepoPathInput] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
@@ -544,10 +545,11 @@ export default function App() {
           <ExportDialog
             scene={exportTargetScene}
             project={project}
+            currentScriptId={selection.scriptId}
             onClose={() => setExportTargetScene(null)}
-            onComplete={(savedPath, format) => {
+            onComplete={(message) => {
               setErrorMessage(null);
-              setSaveInfo(`Exported as .${format} → ${savedPath}`);
+              setSaveInfo(message);
             }}
             onError={(message) => setErrorMessage(message)}
           />

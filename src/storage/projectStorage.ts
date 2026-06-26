@@ -1,3 +1,4 @@
+import { sanitizeExportFileName } from "../domain/exportScenes";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Project } from "../domain/model";
@@ -165,19 +166,16 @@ export async function listConflictCopies(projectPath: string): Promise<string[]>
 }
 
 function sanitizeDefaultExportName(name: string): string {
-  // Mirror src-tauri/sanitize_name's invalid set so the suggested filename
-  // doesn't get rejected by Windows.
-  const trimmed = name.trim();
-  if (!trimmed) return "scene";
-  return trimmed
-    .split("")
-    .map((char) => {
-      const code = char.charCodeAt(0);
-      if (code < 0x20 || '<>:"/\\|?*'.includes(char)) return "_";
-      return char;
-    })
-    .join("")
-    .replace(/\.+$/u, "");
+  return sanitizeExportFileName(name) || "scene";
+}
+
+export async function pickExportDirectory(): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  const selected = await open({
+    directory: true,
+    multiple: false,
+  });
+  return typeof selected === "string" ? selected : null;
 }
 
 export async function pickExportSavePath(

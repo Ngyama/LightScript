@@ -1,7 +1,6 @@
 import {
   characterChipColorsFromHue,
   parseCharacterHue,
-  pickDistinctHue,
   type CharacterChipColors,
 } from "../domain/characterColors";
 
