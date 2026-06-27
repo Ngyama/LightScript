@@ -178,6 +178,22 @@ function sanitizeDefaultExportName(name: string): string {
   return sanitizeExportFileName(name) || "scene";
 }
 
+export async function pickImportMarkdownPath(): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
+export async function readTextFile(path: string): Promise<string> {
+  if (isTauriRuntime()) {
+    return invoke<string>("read_text_file", { path });
+  }
+  throw new Error("Reading files is only available in the desktop app.");
+}
+
 export async function pickExportDirectory(): Promise<string | null> {
   if (!isTauriRuntime()) return null;
   const selected = await open({

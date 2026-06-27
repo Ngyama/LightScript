@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BlockType, Character, DialogueBlock, NarrativeBlock, SceneBlock } from "../../domain/model";
+import { insertPasteIntoBlocks } from "../../domain/blockImport";
 import { getCharacterName } from "../../domain/model";
 import { applyTextSelection } from "../../domain/navigation";
 import {
@@ -220,6 +221,7 @@ interface NarrativeBlockRowProps {
   block: NarrativeBlock;
   registerRef: (id: string, node: HTMLInputElement | null) => void;
   onTextChange: (value: string) => void;
+  onPaste: (input: HTMLInputElement, event: React.ClipboardEvent<HTMLInputElement>) => void;
   onEnter: (input: HTMLInputElement) => void;
   onBackspaceEmpty: () => boolean;
   onArrowUp: (input: HTMLInputElement) => boolean;
@@ -230,6 +232,7 @@ function NarrativeBlockRow({
   block,
   registerRef,
   onTextChange,
+  onPaste,
   onEnter,
   onBackspaceEmpty,
   onArrowUp,
@@ -267,18 +270,10 @@ function NarrativeBlockRow({
   };
 
   const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>): void => {
-    event.preventDefault();
-    const input = event.currentTarget;
-    const paste = event.clipboardData.getData("text");
-    const start = input.selectionStart ?? input.value.length;
-    const end = input.selectionEnd ?? input.value.length;
-    const merged = `${input.value.slice(0, start)}${paste}${input.value.slice(end)}`;
-    const fitted = truncateToBlockLineWidth(merged, input);
-    tryCommitText(fitted, input);
-    const caret = Math.min(start + paste.length, fitted.length);
-    window.requestAnimationFrame(() => {
-      input.setSelectionRange(caret, caret);
-    });
+    if (composingRef.current) {
+      return;
+    }
+    onPaste(event.currentTarget, event);
   };
 
   return (
@@ -338,6 +333,7 @@ interface DialogueBlockRowProps {
   speakerMenuOpen: boolean;
   onSpeakerToggle: (blockId: string, anchor: HTMLButtonElement | null) => void;
   onTextChange: (value: string) => void;
+  onPaste: (textarea: HTMLTextAreaElement, event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onTextKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }
 
@@ -351,6 +347,7 @@ function DialogueBlockRow({
   speakerMenuOpen,
   onSpeakerToggle,
   onTextChange,
+  onPaste,
   onTextKeyDown,
 }: DialogueBlockRowProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -386,6 +383,7 @@ function DialogueBlockRow({
           value={block.text}
           placeholder="台词内容"
           onChange={(event) => onTextChange(event.target.value)}
+          onPaste={(event) => onPaste(event.currentTarget, event)}
           onKeyDown={onTextKeyDown}
         />
       </div>
@@ -546,6 +544,31 @@ export function SceneEditor() {
   const persistBlocks = (nextBlocks: SceneBlock[]) => {
     if (!scene) return;
     setSceneBlocks(scene.id, nextBlocks);
+  };
+
+  const handleBlockPaste = (
+    blockIndex: number,
+    field: FieldElement,
+    event: React.ClipboardEvent<FieldElement>,
+  ): void => {
+    const pasteText = event.clipboardData.getData("text/plain");
+    if (!pasteText) {
+      return;
+    }
+
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? field.value.length;
+    const before = field.value.slice(0, start);
+    const after = field.value.slice(end);
+
+    const result = insertPasteIntoBlocks(blocks, blockIndex, before, after, pasteText);
+    if (!result) {
+      return;
+    }
+
+    event.preventDefault();
+    persistBlocks(result.blocks);
+    setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
   };
 
   const registerRef = (id: string, node: FieldElement | null) => {
@@ -775,6 +798,7 @@ export function SceneEditor() {
                   block={block}
                   registerRef={registerRef}
                   onTextChange={(value) => updateNarrativeText(index, value)}
+                  onPaste={(input, event) => handleBlockPaste(index, input, event)}
                   onEnter={(input) => handleNarrativeEnter(index, input)}
                   onBackspaceEmpty={() => deleteBlockAt(index)}
                   onArrowUp={(input) => focusFromCurrent(input, "prev", index)}
@@ -798,6 +822,7 @@ export function SceneEditor() {
                 speakerMenuOpen={speakerMenu?.blockId === block.id}
                 onSpeakerToggle={handleSpeakerToggle}
                 onTextChange={(value) => updateDialogueText(index, value)}
+                onPaste={(textarea, event) => handleBlockPaste(index, textarea, event)}
                 onTextKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();

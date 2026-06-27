@@ -470,6 +470,15 @@ fn write_docx_export(target_path: String, scene_json: String) -> Result<String, 
   Ok(path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+  let file_path = PathBuf::from(path);
+  if !file_path.exists() || !file_path.is_file() {
+    return Err("file does not exist or is not a regular file".to_string());
+  }
+  fs::read_to_string(&file_path).map_err(|error| format!("failed to read file: {error}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -484,7 +493,8 @@ pub fn run() {
       list_conflict_copies,
       load_project_from_path,
       write_text_export,
-      write_docx_export
+      write_docx_export,
+      read_text_file,
     ])
     .setup(|app| {
       if let Some(window) = app.get_webview_window("main") {

@@ -24,6 +24,7 @@ import {
 import type { Scene } from "./domain/model";
 import { EditorCanvas } from "./ui/canvas/EditorCanvas";
 import { ExportDialog } from "./ui/floating/ExportDialog";
+import { ImportDialog } from "./ui/floating/ImportDialog";
 import { ModalDialog } from "./ui/floating/ModalDialog";
 import { SettingsDialog } from "./ui/floating/SettingsDialog";
 import { SavedStatus } from "./ui/floating/SavedStatus";
@@ -62,6 +63,7 @@ export default function App() {
   const [saveInfo, setSaveInfo] = useState("Not saved yet");
   const [stage, setStage] = useState<AppStage>("splash");
   const [exportTargetScene, setExportTargetScene] = useState<Scene | null>(null);
+  const [importTargetScene, setImportTargetScene] = useState<Scene | null>(null);
   const selection = useEditorStore((state) => state.selection);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [repoPath, setRepoPathInput] = useState("");
@@ -409,6 +411,17 @@ export default function App() {
     setStage("projectHub");
   };
 
+  const handleImport = () => {
+    if (!activeProjectPath) return;
+    const { selection } = useEditorStore.getState();
+    const scene = findSceneInProject(project, selection.sceneId);
+    if (!scene) {
+      setErrorMessage("No scene is currently selected.");
+      return;
+    }
+    setImportTargetScene(scene);
+  };
+
   const handleExport = () => {
     if (!activeProjectPath) return;
     const { selection } = useEditorStore.getState();
@@ -614,6 +627,17 @@ export default function App() {
             onError={(message) => setErrorMessage(message)}
           />
         )}
+        {importTargetScene && (
+          <ImportDialog
+            scene={importTargetScene}
+            onClose={() => setImportTargetScene(null)}
+            onComplete={(message) => {
+              setErrorMessage(null);
+              setSaveInfo(message);
+            }}
+            onError={(message) => setErrorMessage(message)}
+          />
+        )}
         {isSettingsOpen && <SettingsDialog onClose={() => setIsSettingsOpen(false)} />}
       </div>
     );
@@ -627,6 +651,7 @@ export default function App() {
         actions={
           stage === "editor"
             ? [
+                { label: "Import", onClick: handleImport },
                 { label: "Export", onClick: handleExport },
                 { label: "Hub", onClick: handleHub },
                 { label: "Settings", onClick: handleSettings },
