@@ -1044,6 +1044,19 @@ body {
   user-select: none;
 }
 
+.scene-editor-blocks .block-input {
+  user-select: none;
+}
+
+.scene-editor-blocks .block-input::selection {
+  background: transparent;
+}
+
+.block-editor-row.is-block-range-full .block-input {
+  background: rgba(72, 120, 210, 0.14);
+  border-radius: 4px;
+}
+
 .block-editor-content {
   display: flex;
   flex-direction: column;

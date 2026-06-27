@@ -4,6 +4,13 @@ import { insertPasteIntoBlocks } from "../../domain/blockImport";
 import { getCharacterName } from "../../domain/model";
 import { applyTextSelection } from "../../domain/navigation";
 import {
+  type BlockLineSelection,
+  deleteBlockLineRange,
+  getBlockRangeHighlightState,
+  hasBlockLineSelection,
+  hitTestBlockField,
+} from "./blockSelection";
+import {
   useCurrentSceneCharacters,
   useEditorStore,
   useSelectedScene,
@@ -219,9 +226,12 @@ interface PendingFocus {
 
 interface NarrativeBlockRowProps {
   block: NarrativeBlock;
+  rowClassName?: string;
   registerRef: (id: string, node: HTMLInputElement | null) => void;
   onTextChange: (value: string) => void;
   onPaste: (input: HTMLInputElement, event: React.ClipboardEvent<HTMLInputElement>) => void;
+  onFieldMouseDown: (input: HTMLInputElement, event: React.MouseEvent<HTMLInputElement>) => void;
+  onFieldKeyDown: (input: HTMLInputElement, event: React.KeyboardEvent<HTMLInputElement>) => boolean;
   onEnter: (input: HTMLInputElement) => void;
   onBackspaceEmpty: () => boolean;
   onArrowUp: (input: HTMLInputElement) => boolean;
@@ -230,9 +240,12 @@ interface NarrativeBlockRowProps {
 
 function NarrativeBlockRow({
   block,
+  rowClassName,
   registerRef,
   onTextChange,
   onPaste,
+  onFieldMouseDown,
+  onFieldKeyDown,
   onEnter,
   onBackspaceEmpty,
   onArrowUp,
@@ -277,7 +290,7 @@ function NarrativeBlockRow({
   };
 
   return (
-    <div className="block-editor-row">
+    <div className={["block-editor-row", rowClassName].filter(Boolean).join(" ")}>
       <div className="block-editor-gutter" aria-hidden="true" />
       <div className="block-editor-content">
         <input
@@ -287,6 +300,7 @@ function NarrativeBlockRow({
           }}
           className="block-input block-input-single-line"
           value={block.text}
+          onMouseDown={(event) => onFieldMouseDown(event.currentTarget, event)}
           onChange={(event) => tryCommitText(event.target.value, event.target)}
           onCompositionStart={() => {
             composingRef.current = true;
@@ -298,6 +312,9 @@ function NarrativeBlockRow({
           }}
           onPaste={handlePaste}
           onKeyDown={(event) => {
+            if (onFieldKeyDown(event.currentTarget, event)) {
+              return;
+            }
             if (event.key === "Enter") {
               event.preventDefault();
               onEnter(event.currentTarget);
@@ -325,6 +342,7 @@ function NarrativeBlockRow({
 
 interface DialogueBlockRowProps {
   block: DialogueBlock;
+  rowClassName?: string;
   showSpeaker: boolean;
   speakerName: string | undefined;
   speakerColor?: string;
@@ -334,11 +352,16 @@ interface DialogueBlockRowProps {
   onSpeakerToggle: (blockId: string, anchor: HTMLButtonElement | null) => void;
   onTextChange: (value: string) => void;
   onPaste: (textarea: HTMLTextAreaElement, event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  onFieldMouseDown: (
+    textarea: HTMLTextAreaElement,
+    event: React.MouseEvent<HTMLTextAreaElement>,
+  ) => void;
   onTextKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
 }
 
 function DialogueBlockRow({
   block,
+  rowClassName,
   showSpeaker,
   speakerName,
   speakerColor,
@@ -348,6 +371,7 @@ function DialogueBlockRow({
   onSpeakerToggle,
   onTextChange,
   onPaste,
+  onFieldMouseDown,
   onTextKeyDown,
 }: DialogueBlockRowProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -360,7 +384,7 @@ function DialogueBlockRow({
   }, [block.text]);
 
   return (
-    <div className="block-editor-row">
+    <div className={["block-editor-row", rowClassName].filter(Boolean).join(" ")}>
       <div className="block-editor-gutter" aria-hidden={!showSpeaker}>
         {showSpeaker ? (
           <SpeakerChip
@@ -382,6 +406,7 @@ function DialogueBlockRow({
           rows={1}
           value={block.text}
           placeholder="台词内容"
+          onMouseDown={(event) => onFieldMouseDown(event.currentTarget, event)}
           onChange={(event) => onTextChange(event.target.value)}
           onPaste={(event) => onPaste(event.currentTarget, event)}
           onKeyDown={onTextKeyDown}
@@ -405,6 +430,11 @@ export function SceneEditor() {
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null);
   const [pendingSpeakerMenuForId, setPendingSpeakerMenuForId] = useState<string | null>(null);
   const [speakerMenu, setSpeakerMenu] = useState<SpeakerMenuState | null>(null);
+  const [blockLineSelection, setBlockLineSelection] = useState<BlockLineSelection | null>(null);
+  const pointerAnchorRef = useRef<{ blockId: string } | null>(null);
+  const pointerSelectingRef = useRef(false);
+  const pointerDraggedRef = useRef(false);
+  const selectionDraftRef = useRef<BlockLineSelection | null>(null);
 
   const blocks = useMemo<SceneBlock[]>(() => {
     if (!scene) return [];
@@ -424,6 +454,90 @@ export function SceneEditor() {
       setSceneBlocks(scene.id, [createNarrativeBlock()]);
     }
   }, [scene, setSceneBlocks]);
+
+  useEffect(() => {
+    setBlockLineSelection(null);
+    pointerAnchorRef.current = null;
+    pointerSelectingRef.current = false;
+    pointerDraggedRef.current = false;
+    selectionDraftRef.current = null;
+  }, [scene?.id]);
+
+  useLayoutEffect(() => {
+    if (!hasBlockLineSelection(blocks, blockLineSelection)) {
+      return;
+    }
+    for (const block of blocks) {
+      const node = inputRefs.current[block.id];
+      if (!node) {
+        continue;
+      }
+      const caret = node.selectionStart ?? node.value.length;
+      node.setSelectionRange(caret, caret);
+    }
+  }, [blockLineSelection, blocks]);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent): void => {
+      if (!pointerSelectingRef.current || !pointerAnchorRef.current) {
+        return;
+      }
+      if ((event.buttons & 1) === 0) {
+        return;
+      }
+      const hit = hitTestBlockField(blocks, inputRefs.current, event.clientX, event.clientY);
+      if (!hit) {
+        return;
+      }
+      pointerDraggedRef.current = true;
+      const anchorBlockId = pointerAnchorRef.current.blockId;
+      const isSingleLine = anchorBlockId === hit.blockId;
+      const nextSelection: BlockLineSelection = {
+        anchorBlockId,
+        focusBlockId: hit.blockId,
+        selectSingleLine: isSingleLine,
+      };
+      selectionDraftRef.current = nextSelection;
+      setBlockLineSelection(nextSelection);
+    };
+
+    const handleMouseUp = (): void => {
+      if (!pointerSelectingRef.current) {
+        return;
+      }
+      const wasDragging = pointerDraggedRef.current;
+      const draft = selectionDraftRef.current;
+      pointerSelectingRef.current = false;
+      pointerDraggedRef.current = false;
+
+      if (wasDragging && draft) {
+        const finalSelection: BlockLineSelection =
+          draft.anchorBlockId === draft.focusBlockId
+            ? { ...draft, selectSingleLine: true }
+            : draft;
+        if (hasBlockLineSelection(blocks, finalSelection)) {
+          setBlockLineSelection(finalSelection);
+        } else {
+          setBlockLineSelection(null);
+        }
+        return;
+      }
+
+      setBlockLineSelection((current) => {
+        if (!current?.selectSingleLine) {
+          return null;
+        }
+        return current;
+      });
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [blocks]);
 
   useEffect(() => {
     if (!isQuoteMode) return;
@@ -546,6 +660,132 @@ export function SceneEditor() {
     setSceneBlocks(scene.id, nextBlocks);
   };
 
+  const clearBlockLineSelection = () => {
+    setBlockLineSelection(null);
+    pointerAnchorRef.current = null;
+    pointerSelectingRef.current = false;
+    pointerDraggedRef.current = false;
+    selectionDraftRef.current = null;
+  };
+
+  const applyDeleteBlockLineSelection = (): boolean => {
+    if (!blockLineSelection || !hasBlockLineSelection(blocks, blockLineSelection)) {
+      return false;
+    }
+    const result = deleteBlockLineRange(blocks, blockLineSelection);
+    if (!result) {
+      return false;
+    }
+    persistBlocks(result.blocks);
+    clearBlockLineSelection();
+    setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
+    return true;
+  };
+
+  const applyReplaceBlockLineSelectionWithText = (text: string): boolean => {
+    if (!blockLineSelection || !hasBlockLineSelection(blocks, blockLineSelection)) {
+      return false;
+    }
+    const deleted = deleteBlockLineRange(blocks, blockLineSelection);
+    if (!deleted) {
+      return false;
+    }
+    const newBlock = createNarrativeBlock(text);
+    const nextBlocks = [
+      ...deleted.blocks.slice(0, deleted.insertIndex),
+      newBlock,
+      ...deleted.blocks.slice(deleted.insertIndex),
+    ];
+    persistBlocks(nextBlocks);
+    clearBlockLineSelection();
+    setPendingFocus({ blockId: newBlock.id, caret: text.length });
+    return true;
+  };
+
+  const handleBlockLineKeyDown = (
+    _field: FieldElement,
+    event: React.KeyboardEvent<FieldElement>,
+  ): boolean => {
+    if (event.nativeEvent.isComposing) {
+      return false;
+    }
+    if (!blockLineSelection || !hasBlockLineSelection(blocks, blockLineSelection)) {
+      return false;
+    }
+
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      return applyDeleteBlockLineSelection();
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      return applyDeleteBlockLineSelection();
+    }
+
+    if (
+      event.key.length === 1 &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      event.key !== "Enter"
+    ) {
+      event.preventDefault();
+      return applyReplaceBlockLineSelectionWithText(event.key);
+    }
+
+    return false;
+  };
+
+  const handleFieldMouseDown = (
+    blockId: string,
+    field: FieldElement,
+    event: React.MouseEvent<FieldElement>,
+  ): void => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    if (event.shiftKey) {
+      pointerSelectingRef.current = false;
+      pointerDraggedRef.current = false;
+      const nextSelection: BlockLineSelection = blockLineSelection
+        ? {
+            anchorBlockId: blockLineSelection.anchorBlockId,
+            focusBlockId: blockId,
+            selectSingleLine: blockLineSelection.anchorBlockId === blockId,
+          }
+        : {
+            anchorBlockId: blockId,
+            focusBlockId: blockId,
+            selectSingleLine: true,
+          };
+      selectionDraftRef.current = nextSelection;
+      setBlockLineSelection(nextSelection);
+      return;
+    }
+
+    if (blockLineSelection) {
+      clearBlockLineSelection();
+    }
+
+    pointerAnchorRef.current = { blockId };
+    pointerSelectingRef.current = true;
+    pointerDraggedRef.current = false;
+    const nextSelection: BlockLineSelection = {
+      anchorBlockId: blockId,
+      focusBlockId: blockId,
+      selectSingleLine: false,
+    };
+    selectionDraftRef.current = nextSelection;
+    setBlockLineSelection(nextSelection);
+
+    window.requestAnimationFrame(() => {
+      const caret = field.selectionStart ?? field.value.length;
+      field.setSelectionRange(caret, caret);
+    });
+  };
+
   const handleBlockPaste = (
     blockIndex: number,
     field: FieldElement,
@@ -556,8 +796,50 @@ export function SceneEditor() {
       return;
     }
 
+    if (blockLineSelection && hasBlockLineSelection(blocks, blockLineSelection)) {
+      const deleted = deleteBlockLineRange(blocks, blockLineSelection);
+      if (!deleted) {
+        return;
+      }
+      const placeholder = createNarrativeBlock("");
+      const withPlaceholder = [
+        ...deleted.blocks.slice(0, deleted.insertIndex),
+        placeholder,
+        ...deleted.blocks.slice(deleted.insertIndex),
+      ];
+      const result = insertPasteIntoBlocks(
+        withPlaceholder,
+        deleted.insertIndex,
+        "",
+        "",
+        pasteText,
+      );
+      if (!result) {
+        return;
+      }
+      event.preventDefault();
+      persistBlocks(result.blocks);
+      clearBlockLineSelection();
+      setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
+      return;
+    }
+
     const start = field.selectionStart ?? field.value.length;
     const end = field.selectionEnd ?? field.value.length;
+    if (start !== end) {
+      const before = field.value.slice(0, start);
+      const after = field.value.slice(end);
+      const result = insertPasteIntoBlocks(blocks, blockIndex, before, after, pasteText);
+      if (!result) {
+        return;
+      }
+      event.preventDefault();
+      persistBlocks(result.blocks);
+      clearBlockLineSelection();
+      setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
+      return;
+    }
+
     const before = field.value.slice(0, start);
     const after = field.value.slice(end);
 
@@ -568,6 +850,7 @@ export function SceneEditor() {
 
     event.preventDefault();
     persistBlocks(result.blocks);
+    clearBlockLineSelection();
     setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
   };
 
@@ -791,14 +1074,20 @@ export function SceneEditor() {
       <div className="scene-editor-body">
         <div className="scene-editor-blocks">
           {blocks.map((block, index) => {
+            const highlight = getBlockRangeHighlightState(blocks, blockLineSelection, block.id);
+            const rowClassName = highlight === "full" ? "is-block-range-full" : undefined;
+
             if (block.type === "narrative") {
               return (
                 <NarrativeBlockRow
                   key={block.id}
                   block={block}
+                  rowClassName={rowClassName}
                   registerRef={registerRef}
                   onTextChange={(value) => updateNarrativeText(index, value)}
                   onPaste={(input, event) => handleBlockPaste(index, input, event)}
+                  onFieldMouseDown={(input, event) => handleFieldMouseDown(block.id, input, event)}
+                  onFieldKeyDown={(input, event) => handleBlockLineKeyDown(input, event)}
                   onEnter={(input) => handleNarrativeEnter(index, input)}
                   onBackspaceEmpty={() => deleteBlockAt(index)}
                   onArrowUp={(input) => focusFromCurrent(input, "prev", index)}
@@ -814,6 +1103,7 @@ export function SceneEditor() {
               <DialogueBlockRow
                 key={block.id}
                 block={block}
+                rowClassName={rowClassName}
                 showSpeaker={!isQuoteMode}
                 speakerName={speakerName}
                 speakerColor={speaker?.color}
@@ -823,7 +1113,13 @@ export function SceneEditor() {
                 onSpeakerToggle={handleSpeakerToggle}
                 onTextChange={(value) => updateDialogueText(index, value)}
                 onPaste={(textarea, event) => handleBlockPaste(index, textarea, event)}
+                onFieldMouseDown={(textarea, event) =>
+                  handleFieldMouseDown(block.id, textarea, event)
+                }
                 onTextKeyDown={(event) => {
+                  if (handleBlockLineKeyDown(event.currentTarget, event)) {
+                    return;
+                  }
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
                     if (isDialogueEmpty(event.currentTarget.value)) {
