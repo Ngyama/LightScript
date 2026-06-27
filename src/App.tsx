@@ -5,6 +5,7 @@ import {
   createDefaultProject,
   findSceneInProject,
 } from "./domain/model";
+import { withLastOpenedSettings } from "./domain/selection";
 import { useEditorStore } from "./state/editorStore";
 import {
   createProject,
@@ -157,7 +158,15 @@ export default function App() {
     }
     const timeout = window.setTimeout(() => {
       isSavingRef.current = true;
-      void saveProject(activeProjectPath, project)
+      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
+      void saveProject(
+        activeProjectPath,
+        withLastOpenedSettings(
+          currentProject,
+          currentSelection.scriptId,
+          currentSelection.sceneId,
+        ),
+      )
         .then((meta) => {
           if (meta) {
             baselineMetaRef.current = meta;
@@ -172,7 +181,45 @@ export default function App() {
         });
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [activeProjectPath, externalUpdate, isHydrated, project, stage]);
+  }, [activeProjectPath, externalUpdate, isHydrated, project, selection, stage]);
+
+  useEffect(() => {
+    if (!isHydrated || stage !== "editor" || !activeProjectPath || externalUpdate) {
+      return;
+    }
+
+    const flushSave = (): void => {
+      if (isSavingRef.current) {
+        return;
+      }
+      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
+      isSavingRef.current = true;
+      void saveProject(
+        activeProjectPath,
+        withLastOpenedSettings(
+          currentProject,
+          currentSelection.scriptId,
+          currentSelection.sceneId,
+        ),
+      )
+        .finally(() => {
+          isSavingRef.current = false;
+        });
+    };
+
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === "hidden") {
+        flushSave();
+      }
+    };
+
+    window.addEventListener("beforeunload", flushSave);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", flushSave);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [activeProjectPath, externalUpdate, isHydrated, stage]);
 
   // Poll the on-disk fingerprint while editing so a newer copy synced in by
   // Google Drive (from another machine) surfaces a "reload?" prompt instead of
@@ -375,7 +422,20 @@ export default function App() {
     setExportTargetScene(scene);
   };
 
-  const handleHub = () => setStage("projectHub");
+  const handleHub = () => {
+    if (activeProjectPath && !externalUpdate) {
+      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
+      void saveProject(
+        activeProjectPath,
+        withLastOpenedSettings(
+          currentProject,
+          currentSelection.scriptId,
+          currentSelection.sceneId,
+        ),
+      );
+    }
+    setStage("projectHub");
+  };
 
   const handleSettings = () => setIsSettingsOpen(true);
 

@@ -53,6 +53,46 @@ fn compute_project_meta(data_path: &Path) -> Result<ProjectMeta, String> {
   })
 }
 
+fn is_generic_project_title(title: &str) -> bool {
+  let normalized = title.trim().to_ascii_lowercase();
+  normalized.is_empty() || normalized == "untitled" || normalized == "untitled project"
+}
+
+fn resolve_project_display_name(json_title: Option<&str>, directory_name: &str) -> String {
+  if let Some(title) = json_title {
+    let trimmed = title.trim();
+    if !trimmed.is_empty() && !is_generic_project_title(trimmed) {
+      return trimmed.to_string();
+    }
+  }
+
+  let folder = directory_name.trim();
+  if folder.is_empty() {
+    "Untitled Project".to_string()
+  } else {
+    folder.to_string()
+  }
+}
+
+fn project_name_from_json_file(project_file: &Path, directory_name: &str) -> String {
+  let name = fs::read_to_string(project_file)
+    .ok()
+    .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+    .and_then(|json| json["title"].as_str().map(ToString::to_string));
+  resolve_project_display_name(name.as_deref(), directory_name)
+}
+
+fn push_project_summary(results: &mut Vec<ProjectSummary>, path: &Path, name: String) {
+  let path_string = path.to_string_lossy().to_string();
+  if results.iter().any(|entry| entry.path == path_string) {
+    return;
+  }
+  results.push(ProjectSummary {
+    name,
+    path: path_string,
+  });
+}
+
 fn sanitize_name(name: &str) -> String {
   let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
   let mut sanitized: String = name
@@ -149,6 +189,16 @@ fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectSummary>, String> {
   let repo_path = repo_path_from_settings(&app)?;
   let mut results: Vec<ProjectSummary> = Vec::new();
 
+  let root_project_file = project_json_path(&repo_path);
+  if root_project_file.exists() {
+    let directory_name = repo_path
+      .file_name()
+      .map(|name| name.to_string_lossy().to_string())
+      .unwrap_or_else(|| "Untitled Project".to_string());
+    let name = project_name_from_json_file(&root_project_file, &directory_name);
+    push_project_summary(&mut results, &repo_path, name);
+  }
+
   for entry in fs::read_dir(&repo_path).map_err(|error| format!("failed to read repo dir: {error}"))? {
     let entry = entry.map_err(|error| format!("failed to read repo entry: {error}"))?;
     let path = entry.path();
@@ -162,19 +212,8 @@ fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectSummary>, String> {
     }
 
     let directory_name = entry.file_name().to_string_lossy().to_string();
-    let name = match fs::read_to_string(&project_file)
-      .ok()
-      .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-      .and_then(|json| json["title"].as_str().map(ToString::to_string))
-    {
-      Some(title) if !title.trim().is_empty() => title,
-      _ => directory_name,
-    };
-
-    results.push(ProjectSummary {
-      name,
-      path: path.to_string_lossy().to_string(),
-    });
+    let name = project_name_from_json_file(&project_file, &directory_name);
+    push_project_summary(&mut results, &path, name);
   }
 
   results.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -208,6 +247,58 @@ fn create_project(app: tauri::AppHandle, project_name: String, project_json: Str
   })
 }
 
+const MAX_PROJECT_SNAPSHOTS: usize = 10;
+const SNAPSHOT_DIR: &str = ".lightscript/backups";
+
+fn snapshot_timestamp() -> String {
+  use std::time::{SystemTime, UNIX_EPOCH};
+  let duration = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default();
+  format!("{}-{:03}", duration.as_secs(), duration.subsec_millis())
+}
+
+fn is_snapshot_file_name(name: &str) -> bool {
+  name.starts_with("project-") && name.ends_with(".json")
+}
+
+fn prune_project_snapshots(backup_dir: &Path) -> Result<(), String> {
+  let mut snapshots: Vec<PathBuf> = Vec::new();
+  for entry in fs::read_dir(backup_dir)
+    .map_err(|error| format!("failed to read snapshot dir: {error}"))?
+  {
+    let entry = entry.map_err(|error| format!("failed to read snapshot entry: {error}"))?;
+    if !entry.path().is_file() {
+      continue;
+    }
+    let name = entry.file_name().to_string_lossy().to_string();
+    if is_snapshot_file_name(&name) {
+      snapshots.push(entry.path());
+    }
+  }
+
+  snapshots.sort();
+  while snapshots.len() > MAX_PROJECT_SNAPSHOTS {
+    let oldest = snapshots.remove(0);
+    fs::remove_file(&oldest).map_err(|error| format!("failed to prune snapshot: {error}"))?;
+  }
+  Ok(())
+}
+
+fn snapshot_project_before_save(project_dir: &Path) -> Result<(), String> {
+  let data_path = project_json_path(project_dir);
+  if !data_path.exists() {
+    return Ok(());
+  }
+
+  let backup_dir = project_dir.join(SNAPSHOT_DIR);
+  fs::create_dir_all(&backup_dir).map_err(|error| format!("failed to create snapshot dir: {error}"))?;
+
+  let backup_path = backup_dir.join(format!("project-{}.json", snapshot_timestamp()));
+  fs::copy(&data_path, &backup_path).map_err(|error| format!("failed to write project snapshot: {error}"))?;
+  prune_project_snapshots(&backup_dir)
+}
+
 #[tauri::command]
 fn save_project_to_path(project_path: String, project_json: String) -> Result<ProjectMeta, String> {
   serde_json::from_str::<Value>(&project_json).map_err(|error| format!("invalid project json: {error}"))?;
@@ -215,6 +306,7 @@ fn save_project_to_path(project_path: String, project_json: String) -> Result<Pr
   if !project_dir.exists() || !project_dir.is_dir() {
     return Err("project path does not exist or is not a directory".to_string());
   }
+  snapshot_project_before_save(&project_dir)?;
   let data_path = project_json_path(&project_dir);
   let temp_path = project_dir.join("project.json.tmp");
   fs::write(&temp_path, project_json).map_err(|error| format!("failed to write temp project: {error}"))?;

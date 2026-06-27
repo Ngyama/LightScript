@@ -1,4 +1,5 @@
 import { sanitizeExportFileName } from "../domain/exportScenes";
+import { resolveProjectTitleFromPath } from "../domain/projectTitle";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { Project } from "../domain/model";
@@ -121,13 +122,21 @@ export async function deleteProject(projectPath: string): Promise<void> {
 export async function loadProjectFromPath(projectPath: string): Promise<Project> {
   if (isTauriRuntime()) {
     const raw = await invoke<string>("load_project_from_path", { projectPath });
-    return parseProject(raw);
+    const project = parseProject(raw);
+    return {
+      ...project,
+      title: resolveProjectTitleFromPath(project.title, projectPath),
+    };
   }
   const raw = localStorage.getItem(localProjectKey(projectPath));
   if (!raw) {
     throw new Error(`Project not found: ${projectPath}`);
   }
-  return parseProject(raw);
+  const project = parseProject(raw);
+  return {
+    ...project,
+    title: resolveProjectTitleFromPath(project.title, projectPath),
+  };
 }
 
 export async function saveProject(

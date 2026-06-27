@@ -55,6 +55,8 @@ export interface Project {
   characters: Character[];
   settings: {
     writingMode: WritingMode;
+    lastScriptId?: string;
+    lastSceneId?: string;
   };
 }
 
@@ -105,8 +107,21 @@ export function normalizeProjectSettings(settings: unknown): Project["settings"]
   if (!settings || typeof settings !== "object") {
     return { writingMode: "character" };
   }
-  const raw = settings as { writingMode?: unknown };
-  return { writingMode: normalizeWritingMode(raw.writingMode) };
+  const raw = settings as {
+    writingMode?: unknown;
+    lastScriptId?: unknown;
+    lastSceneId?: unknown;
+  };
+  const normalized: Project["settings"] = {
+    writingMode: normalizeWritingMode(raw.writingMode),
+  };
+  if (typeof raw.lastScriptId === "string" && raw.lastScriptId.trim()) {
+    normalized.lastScriptId = raw.lastScriptId;
+  }
+  if (typeof raw.lastSceneId === "string" && raw.lastSceneId.trim()) {
+    normalized.lastSceneId = raw.lastSceneId;
+  }
+  return normalized;
 }
 
 export function normalizeSceneOutline(outline: unknown): string {
