@@ -9,6 +9,10 @@ function normalizeSceneOutline(outline: unknown): string {
   return typeof outline === "string" ? outline : "";
 }
 
+function normalizeSceneLocation(location: unknown): string {
+  return typeof location === "string" ? location : "";
+}
+
 const randomId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -244,6 +248,7 @@ export function migrateProjectCharacters(project: Project): Project {
       return {
         id: scene.id,
         title: scene.title,
+        location: normalizeSceneLocation(scene.location),
         outline: normalizeSceneOutline(scene.outline),
         characterIds,
         blocks,
@@ -281,6 +286,7 @@ export function normalizeProjectCharacterReferences(project: Project): Project {
       return {
         id: scene.id,
         title: scene.title,
+        location: normalizeSceneLocation(scene.location),
         outline: normalizeSceneOutline(scene.outline),
         characterIds: normalizeCharacterIds([...characterIdSet]),
         blocks,

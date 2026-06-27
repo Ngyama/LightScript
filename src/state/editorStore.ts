@@ -45,6 +45,7 @@ type EditorState = {
   renameScript: (scriptId: string, title: string) => void;
   renameScene: (sceneId: string, title: string) => void;
   updateSceneOutline: (sceneId: string, outline: string) => void;
+  updateSceneLocation: (sceneId: string, location: string) => void;
   setSceneBlocks: (sceneId: string, blocks: SceneBlock[]) => void;
   addGlobalCharacter: (name: string) => string | undefined;
   renameGlobalCharacter: (characterId: string, name: string) => void;
@@ -171,7 +172,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           {
             id: newScriptId,
             title: `Script ${state.project.scripts.length + 1}`,
-            scenes: [{ id: newSceneId, title: "Scene 1", outline: "", characterIds: [], blocks: [] }],
+            scenes: [{ id: newSceneId, title: "Scene 1", location: "", outline: "", characterIds: [], blocks: [] }],
           },
         ],
       });
@@ -197,6 +198,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             {
               id: randomId(),
               title: `Scene ${script.scenes.length + 1}`,
+              location: "",
               outline: "",
               characterIds: [],
               blocks: [],
@@ -325,6 +327,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           ...script,
           scenes: script.scenes.map((scene) =>
             scene.id === sceneId ? { ...scene, outline } : scene,
+          ),
+        })),
+      }),
+    })),
+  updateSceneLocation: (sceneId, location) =>
+    set((state) => ({
+      project: withInvariant({
+        ...state.project,
+        scripts: state.project.scripts.map((script) => ({
+          ...script,
+          scenes: script.scenes.map((scene) =>
+            scene.id === sceneId ? { ...scene, location } : scene,
           ),
         })),
       }),

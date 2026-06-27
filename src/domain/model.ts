@@ -26,6 +26,7 @@ export type SceneBlock = NarrativeBlock | DialogueBlock;
 export interface Scene {
   id: string;
   title: string;
+  location: string;
   outline: string;
   characterIds: string[];
   blocks: SceneBlock[];
@@ -72,6 +73,7 @@ export function createDefaultProject(): Project {
   const introScene: Scene = {
     id: randomId(),
     title: "Scene 1",
+    location: "",
     outline: "",
     characterIds: [],
     blocks: [{ id: randomId(), type: "narrative", text: "" }],
@@ -109,6 +111,10 @@ export function normalizeProjectSettings(settings: unknown): Project["settings"]
 
 export function normalizeSceneOutline(outline: unknown): string {
   return typeof outline === "string" ? outline : "";
+}
+
+export function normalizeSceneLocation(location: unknown): string {
+  return typeof location === "string" ? location : "";
 }
 
 function assertValidBlock(block: SceneBlock, validCharacterIds: Set<string>): void {
@@ -183,6 +189,10 @@ export function assertProjectInvariant(project: Project): void {
 
       if (typeof scene.outline !== "string") {
         throw new Error("Scene outline must be a string.");
+      }
+
+      if (typeof scene.location !== "string") {
+        throw new Error("Scene location must be a string.");
       }
 
       if (!Array.isArray(scene.characterIds)) {
@@ -386,6 +396,7 @@ export function parseProject(raw: string): Project {
       const migratingScene: Scene & { characters?: unknown } = {
         id: scene.id,
         title: scene.title,
+        location: normalizeSceneLocation(scene.location),
         outline: normalizeSceneOutline(scene.outline),
         characterIds,
         blocks,
