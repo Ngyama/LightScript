@@ -4,11 +4,26 @@ import { insertPasteIntoBlocks } from "../../domain/blockImport";
 import { getCharacterName } from "../../domain/model";
 import { applyTextSelection } from "../../domain/navigation";
 import {
-  type BlockLineSelection,
-  deleteBlockLineRange,
-  getBlockRangeHighlightState,
-  hasBlockLineSelection,
-  hitTestBlockField,
+  DIALOGUE_CLOSE,
+  DIALOGUE_OPEN,
+  DIALOGUE_SCAFFOLD,
+  type BlockHighlight,
+  type BlockTextPoint,
+  type BlockTextSelection,
+  deleteBlockTextRange,
+  domOffsetToEditableOffset,
+  editableOffsetToDomOffset,
+  findClosestCaretIndexInRange,
+  getBlockEditableText,
+  getBlockHighlightRange,
+  getBlockTextRangeText,
+  hasBlockTextSelection,
+  hitTestBlockTextPoint,
+  insertEditableTextAt,
+  measureCaretLeft,
+  readEditableOffsetFromField,
+  shouldActivateVirtualSelection,
+  toPasteFieldSlices,
 } from "./blockSelection";
 import {
   useCurrentSceneCharacters,
@@ -25,7 +40,6 @@ import { computeSceneStats } from "./sceneStats";
 
 const SPEAKER_MENU_WIDTH = 160;
 const SPEAKER_MENU_MAX_HEIGHT = 220;
-const DIALOGUE_SCAFFOLD = "「」";
 const SPEAKER_HOTKEY = "Tab";
 
 function isPlainTabKey(event: React.KeyboardEvent | KeyboardEvent): boolean {
@@ -105,53 +119,6 @@ function changeBlockType(block: SceneBlock, newType: BlockType): SceneBlock {
   return { id: dialogue.id, type: "narrative", text: dialogue.text };
 }
 
-function measureCaretLeft(element: FieldElement): number {
-  const cs = window.getComputedStyle(element);
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return 0;
-  const fontParts = [cs.fontStyle, cs.fontVariant, cs.fontWeight, cs.fontSize, cs.fontFamily]
-    .filter(Boolean)
-    .join(" ");
-  ctx.font = fontParts;
-  const caretIndex = element.selectionEnd ?? element.value.length;
-  const value = element.value;
-  const lineStart = value.lastIndexOf("\n", caretIndex - 1) + 1;
-  const sliced = value.slice(lineStart, caretIndex);
-  const paddingLeft = parseFloat(cs.paddingLeft || "0");
-  return paddingLeft + ctx.measureText(sliced).width;
-}
-
-function findClosestCaretIndexInRange(
-  element: FieldElement,
-  targetX: number,
-  start: number,
-  end: number,
-): number {
-  const cs = window.getComputedStyle(element);
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return start;
-  const fontParts = [cs.fontStyle, cs.fontVariant, cs.fontWeight, cs.fontSize, cs.fontFamily]
-    .filter(Boolean)
-    .join(" ");
-  ctx.font = fontParts;
-  const paddingLeft = parseFloat(cs.paddingLeft || "0");
-  const text = element.value;
-  let bestIdx = start;
-  let bestDelta = Math.abs(paddingLeft - targetX);
-  for (let i = start + 1; i <= end; i++) {
-    const slice = text.slice(start, i);
-    const width = paddingLeft + ctx.measureText(slice).width;
-    const delta = Math.abs(width - targetX);
-    if (delta < bestDelta) {
-      bestDelta = delta;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-
 function focusElementAtCaretX(
   element: FieldElement,
   targetX: number,
@@ -221,12 +188,43 @@ function SpeakerChip({ displayName, color, isOpen, onToggle, registerAnchor }: S
 
 interface PendingFocus {
   blockId: string;
+  /** Editable content offset. */
   caret: number;
+}
+
+function BlockSelectionMirror({
+  block,
+  highlight,
+}: {
+  block: SceneBlock;
+  highlight: Extract<BlockHighlight, { type: "range" }>;
+}) {
+  const editable = getBlockEditableText(block);
+  const before = editable.slice(0, highlight.start);
+  const selected = editable.slice(highlight.start, highlight.end);
+  const after = editable.slice(highlight.end);
+  const isDialogue = block.type === "dialogue";
+  return (
+    <div
+      className={[
+        "block-selection-mirror",
+        isDialogue ? "block-selection-mirror--dialogue" : "block-selection-mirror--narrative",
+      ].join(" ")}
+      aria-hidden="true"
+    >
+      {isDialogue ? <span className="block-selection-scaffold">{DIALOGUE_OPEN}</span> : null}
+      <span>{before}</span>
+      <span className="block-selection-hl">{selected}</span>
+      <span>{after}</span>
+      {isDialogue ? <span className="block-selection-scaffold">{DIALOGUE_CLOSE}</span> : null}
+    </div>
+  );
 }
 
 interface NarrativeBlockRowProps {
   block: NarrativeBlock;
-  rowClassName?: string;
+  highlight: BlockHighlight;
+  virtualSelecting: boolean;
   registerRef: (id: string, node: HTMLInputElement | null) => void;
   onTextChange: (value: string) => void;
   onPaste: (input: HTMLInputElement, event: React.ClipboardEvent<HTMLInputElement>) => void;
@@ -240,7 +238,8 @@ interface NarrativeBlockRowProps {
 
 function NarrativeBlockRow({
   block,
-  rowClassName,
+  highlight,
+  virtualSelecting,
   registerRef,
   onTextChange,
   onPaste,
@@ -290,15 +289,24 @@ function NarrativeBlockRow({
   };
 
   return (
-    <div className={["block-editor-row", rowClassName].filter(Boolean).join(" ")}>
+    <div className="block-editor-row">
       <div className="block-editor-gutter" aria-hidden="true" />
-      <div className="block-editor-content">
+      <div className={`block-editor-content${virtualSelecting ? " is-virtual-selecting" : ""}`}>
+        {highlight.type === "range" ? (
+          <BlockSelectionMirror block={block} highlight={highlight} />
+        ) : null}
         <input
           ref={(node) => {
             inputRef.current = node;
             registerRef(block.id, node);
           }}
-          className="block-input block-input-single-line"
+          className={[
+            "block-input",
+            "block-input-single-line",
+            virtualSelecting ? "is-virtual-hidden-text" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           value={block.text}
           onMouseDown={(event) => onFieldMouseDown(event.currentTarget, event)}
           onChange={(event) => tryCommitText(event.target.value, event.target)}
@@ -342,7 +350,8 @@ function NarrativeBlockRow({
 
 interface DialogueBlockRowProps {
   block: DialogueBlock;
-  rowClassName?: string;
+  highlight: BlockHighlight;
+  virtualSelecting: boolean;
   showSpeaker: boolean;
   speakerName: string | undefined;
   speakerColor?: string;
@@ -361,7 +370,8 @@ interface DialogueBlockRowProps {
 
 function DialogueBlockRow({
   block,
-  rowClassName,
+  highlight,
+  virtualSelecting,
   showSpeaker,
   speakerName,
   speakerColor,
@@ -384,7 +394,7 @@ function DialogueBlockRow({
   }, [block.text]);
 
   return (
-    <div className={["block-editor-row", rowClassName].filter(Boolean).join(" ")}>
+    <div className="block-editor-row">
       <div className="block-editor-gutter" aria-hidden={!showSpeaker}>
         {showSpeaker ? (
           <SpeakerChip
@@ -396,13 +406,22 @@ function DialogueBlockRow({
           />
         ) : null}
       </div>
-      <div className="block-editor-content">
+      <div className={`block-editor-content${virtualSelecting ? " is-virtual-selecting" : ""}`}>
+        {highlight.type === "range" ? (
+          <BlockSelectionMirror block={block} highlight={highlight} />
+        ) : null}
         <textarea
           ref={(node) => {
             textareaRef.current = node;
             registerRef(block.id, node);
           }}
-          className="block-input block-input-textarea"
+          className={[
+            "block-input",
+            "block-input-textarea",
+            virtualSelecting ? "is-virtual-hidden-text" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           rows={1}
           value={block.text}
           placeholder="台词内容"
@@ -430,11 +449,11 @@ export function SceneEditor() {
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null);
   const [pendingSpeakerMenuForId, setPendingSpeakerMenuForId] = useState<string | null>(null);
   const [speakerMenu, setSpeakerMenu] = useState<SpeakerMenuState | null>(null);
-  const [blockLineSelection, setBlockLineSelection] = useState<BlockLineSelection | null>(null);
-  const pointerAnchorRef = useRef<{ blockId: string } | null>(null);
+  const [blockTextSelection, setBlockTextSelection] = useState<BlockTextSelection | null>(null);
+  const pointerAnchorRef = useRef<BlockTextPoint | null>(null);
   const pointerSelectingRef = useRef(false);
-  const pointerDraggedRef = useRef(false);
-  const selectionDraftRef = useRef<BlockLineSelection | null>(null);
+  const virtualActiveRef = useRef(false);
+  const selectionDraftRef = useRef<BlockTextSelection | null>(null);
 
   const blocks = useMemo<SceneBlock[]>(() => {
     if (!scene) return [];
@@ -456,15 +475,17 @@ export function SceneEditor() {
   }, [scene, setSceneBlocks]);
 
   useEffect(() => {
-    setBlockLineSelection(null);
+    setBlockTextSelection(null);
     pointerAnchorRef.current = null;
     pointerSelectingRef.current = false;
-    pointerDraggedRef.current = false;
+    virtualActiveRef.current = false;
     selectionDraftRef.current = null;
   }, [scene?.id]);
 
+  const virtualSelecting = hasBlockTextSelection(blocks, blockTextSelection);
+
   useLayoutEffect(() => {
-    if (!hasBlockLineSelection(blocks, blockLineSelection)) {
+    if (!virtualSelecting) {
       return;
     }
     for (const block of blocks) {
@@ -475,7 +496,7 @@ export function SceneEditor() {
       const caret = node.selectionStart ?? node.value.length;
       node.setSelectionRange(caret, caret);
     }
-  }, [blockLineSelection, blocks]);
+  }, [blockTextSelection, blocks, virtualSelecting]);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent): void => {
@@ -485,50 +506,49 @@ export function SceneEditor() {
       if ((event.buttons & 1) === 0) {
         return;
       }
-      const hit = hitTestBlockField(blocks, inputRefs.current, event.clientX, event.clientY);
+      const hit = hitTestBlockTextPoint(blocks, inputRefs.current, event.clientX, event.clientY);
       if (!hit) {
         return;
       }
-      pointerDraggedRef.current = true;
-      const anchorBlockId = pointerAnchorRef.current.blockId;
-      const isSingleLine = anchorBlockId === hit.blockId;
-      const nextSelection: BlockLineSelection = {
-        anchorBlockId,
-        focusBlockId: hit.blockId,
-        selectSingleLine: isSingleLine,
+
+      const anchor = pointerAnchorRef.current;
+      if (!virtualActiveRef.current) {
+        if (!shouldActivateVirtualSelection(anchor.blockId, hit.blockId)) {
+          return;
+        }
+        virtualActiveRef.current = true;
+        for (const block of blocks) {
+          const node = inputRefs.current[block.id];
+          if (!node) continue;
+          const caret = node.selectionStart ?? node.value.length;
+          node.setSelectionRange(caret, caret);
+        }
+      }
+
+      const nextSelection: BlockTextSelection = {
+        anchor,
+        focus: hit,
       };
       selectionDraftRef.current = nextSelection;
-      setBlockLineSelection(nextSelection);
+      setBlockTextSelection(nextSelection);
     };
 
     const handleMouseUp = (): void => {
       if (!pointerSelectingRef.current) {
         return;
       }
-      const wasDragging = pointerDraggedRef.current;
+      const wasVirtual = virtualActiveRef.current;
       const draft = selectionDraftRef.current;
       pointerSelectingRef.current = false;
-      pointerDraggedRef.current = false;
+      virtualActiveRef.current = false;
 
-      if (wasDragging && draft) {
-        const finalSelection: BlockLineSelection =
-          draft.anchorBlockId === draft.focusBlockId
-            ? { ...draft, selectSingleLine: true }
-            : draft;
-        if (hasBlockLineSelection(blocks, finalSelection)) {
-          setBlockLineSelection(finalSelection);
-        } else {
-          setBlockLineSelection(null);
-        }
+      if (wasVirtual && draft && hasBlockTextSelection(blocks, draft)) {
+        setBlockTextSelection(draft);
         return;
       }
 
-      setBlockLineSelection((current) => {
-        if (!current?.selectSingleLine) {
-          return null;
-        }
-        return current;
-      });
+      setBlockTextSelection(null);
+      selectionDraftRef.current = null;
     };
 
     document.addEventListener("mousemove", handleMouseMove);
@@ -540,6 +560,22 @@ export function SceneEditor() {
   }, [blocks]);
 
   useEffect(() => {
+    const handleCopy = (event: ClipboardEvent): void => {
+      if (!hasBlockTextSelection(blocks, blockTextSelection)) {
+        return;
+      }
+      const text = getBlockTextRangeText(blocks, blockTextSelection!);
+      if (text === null) {
+        return;
+      }
+      event.preventDefault();
+      event.clipboardData?.setData("text/plain", text);
+    };
+    document.addEventListener("copy", handleCopy);
+    return () => document.removeEventListener("copy", handleCopy);
+  }, [blocks, blockTextSelection]);
+
+  useEffect(() => {
     if (!isQuoteMode) return;
     setSpeakerMenu(null);
     setPendingSpeakerMenuForId(null);
@@ -548,14 +584,11 @@ export function SceneEditor() {
   useEffect(() => {
     if (!pendingFocus) return;
     const node = inputRefs.current[pendingFocus.blockId];
-    if (node) {
+    const block = blocks.find((entry) => entry.id === pendingFocus.blockId);
+    if (node && block) {
       node.focus();
-      if (node.value === DIALOGUE_SCAFFOLD) {
-        node.setSelectionRange(1, 1);
-      } else {
-        const caret = Math.min(pendingFocus.caret, node.value.length);
-        node.setSelectionRange(caret, caret);
-      }
+      const caret = editableOffsetToDomOffset(block, pendingFocus.caret);
+      node.setSelectionRange(caret, caret);
     }
     setPendingFocus(null);
   }, [pendingFocus, blocks]);
@@ -660,67 +693,72 @@ export function SceneEditor() {
     setSceneBlocks(scene.id, nextBlocks);
   };
 
-  const clearBlockLineSelection = () => {
-    setBlockLineSelection(null);
+  const clearBlockTextSelection = () => {
+    setBlockTextSelection(null);
     pointerAnchorRef.current = null;
     pointerSelectingRef.current = false;
-    pointerDraggedRef.current = false;
+    virtualActiveRef.current = false;
     selectionDraftRef.current = null;
   };
 
-  const applyDeleteBlockLineSelection = (): boolean => {
-    if (!blockLineSelection || !hasBlockLineSelection(blocks, blockLineSelection)) {
+  const applyDeleteBlockTextSelection = (): boolean => {
+    if (!blockTextSelection || !hasBlockTextSelection(blocks, blockTextSelection)) {
       return false;
     }
-    const result = deleteBlockLineRange(blocks, blockLineSelection);
+    const result = deleteBlockTextRange(blocks, blockTextSelection);
     if (!result) {
       return false;
     }
     persistBlocks(result.blocks);
-    clearBlockLineSelection();
-    setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
+    clearBlockTextSelection();
+    setPendingFocus({ blockId: result.focusBlockId, caret: result.focusEditableOffset });
     return true;
   };
 
-  const applyReplaceBlockLineSelectionWithText = (text: string): boolean => {
-    if (!blockLineSelection || !hasBlockLineSelection(blocks, blockLineSelection)) {
+  const applyReplaceBlockTextSelectionWithText = (text: string): boolean => {
+    if (!blockTextSelection || !hasBlockTextSelection(blocks, blockTextSelection)) {
       return false;
     }
-    const deleted = deleteBlockLineRange(blocks, blockLineSelection);
+    const deleted = deleteBlockTextRange(blocks, blockTextSelection);
     if (!deleted) {
       return false;
     }
-    const newBlock = createNarrativeBlock(text);
-    const nextBlocks = [
-      ...deleted.blocks.slice(0, deleted.insertIndex),
-      newBlock,
-      ...deleted.blocks.slice(deleted.insertIndex),
-    ];
+    const focusIndex = deleted.blocks.findIndex((entry) => entry.id === deleted.focusBlockId);
+    if (focusIndex === -1) {
+      return false;
+    }
+    const focusBlock = deleted.blocks[focusIndex];
+    const nextBlock = insertEditableTextAt(focusBlock, deleted.focusEditableOffset, text);
+    const nextBlocks = [...deleted.blocks];
+    nextBlocks[focusIndex] = nextBlock;
     persistBlocks(nextBlocks);
-    clearBlockLineSelection();
-    setPendingFocus({ blockId: newBlock.id, caret: text.length });
+    clearBlockTextSelection();
+    setPendingFocus({
+      blockId: nextBlock.id,
+      caret: deleted.focusEditableOffset + text.length,
+    });
     return true;
   };
 
-  const handleBlockLineKeyDown = (
+  const handleBlockTextKeyDown = (
     _field: FieldElement,
     event: React.KeyboardEvent<FieldElement>,
   ): boolean => {
     if (event.nativeEvent.isComposing) {
       return false;
     }
-    if (!blockLineSelection || !hasBlockLineSelection(blocks, blockLineSelection)) {
+    if (!blockTextSelection || !hasBlockTextSelection(blocks, blockTextSelection)) {
       return false;
     }
 
     if (event.key === "Backspace" || event.key === "Delete") {
       event.preventDefault();
-      return applyDeleteBlockLineSelection();
+      return applyDeleteBlockTextSelection();
     }
 
     if (event.key === "Enter") {
       event.preventDefault();
-      return applyDeleteBlockLineSelection();
+      return applyDeleteBlockTextSelection();
     }
 
     if (
@@ -731,7 +769,7 @@ export function SceneEditor() {
       event.key !== "Enter"
     ) {
       event.preventDefault();
-      return applyReplaceBlockLineSelectionWithText(event.key);
+      return applyReplaceBlockTextSelectionWithText(event.key);
     }
 
     return false;
@@ -746,43 +784,68 @@ export function SceneEditor() {
       return;
     }
 
-    if (event.shiftKey) {
-      pointerSelectingRef.current = false;
-      pointerDraggedRef.current = false;
-      const nextSelection: BlockLineSelection = blockLineSelection
-        ? {
-            anchorBlockId: blockLineSelection.anchorBlockId,
-            focusBlockId: blockId,
-            selectSingleLine: blockLineSelection.anchorBlockId === blockId,
-          }
-        : {
-            anchorBlockId: blockId,
-            focusBlockId: blockId,
-            selectSingleLine: true,
-          };
-      selectionDraftRef.current = nextSelection;
-      setBlockLineSelection(nextSelection);
+    const block = blocks.find((entry) => entry.id === blockId);
+    if (!block) {
       return;
     }
 
-    if (blockLineSelection) {
-      clearBlockLineSelection();
+    if (event.shiftKey) {
+      pointerSelectingRef.current = false;
+      virtualActiveRef.current = false;
+      const focusPoint: BlockTextPoint = {
+        blockId,
+        offset: hitTestBlockTextPoint(blocks, inputRefs.current, event.clientX, event.clientY)
+          ?.offset ?? readEditableOffsetFromField(block, field, "start"),
+      };
+      const nextSelection: BlockTextSelection = blockTextSelection
+        ? {
+            anchor: blockTextSelection.anchor,
+            focus: focusPoint,
+          }
+        : {
+            anchor: {
+              blockId,
+              offset: readEditableOffsetFromField(block, field, "start"),
+            },
+            focus: focusPoint,
+          };
+      if (
+        shouldActivateVirtualSelection(nextSelection.anchor.blockId, nextSelection.focus.blockId) ||
+        nextSelection.anchor.offset !== nextSelection.focus.offset
+      ) {
+        // Shift across blocks or within block expands virtual selection when meaningful.
+        if (shouldActivateVirtualSelection(nextSelection.anchor.blockId, nextSelection.focus.blockId)) {
+          virtualActiveRef.current = true;
+          selectionDraftRef.current = nextSelection;
+          setBlockTextSelection(nextSelection);
+        } else if (blockTextSelection && hasBlockTextSelection(blocks, blockTextSelection)) {
+          // Within same block while virtual already active: update focus.
+          selectionDraftRef.current = nextSelection;
+          setBlockTextSelection(nextSelection);
+        }
+      }
+      return;
     }
 
-    pointerAnchorRef.current = { blockId };
-    pointerSelectingRef.current = true;
-    pointerDraggedRef.current = false;
-    const nextSelection: BlockLineSelection = {
-      anchorBlockId: blockId,
-      focusBlockId: blockId,
-      selectSingleLine: false,
-    };
-    selectionDraftRef.current = nextSelection;
-    setBlockLineSelection(nextSelection);
+    if (blockTextSelection) {
+      clearBlockTextSelection();
+    }
 
+    pointerSelectingRef.current = true;
+    virtualActiveRef.current = false;
+    selectionDraftRef.current = null;
+
+    // Capture editable offset after the browser places the caret.
     window.requestAnimationFrame(() => {
-      const caret = field.selectionStart ?? field.value.length;
-      field.setSelectionRange(caret, caret);
+      const liveBlock = blocks.find((entry) => entry.id === blockId);
+      const liveField = inputRefs.current[blockId];
+      if (!liveBlock || !liveField) {
+        return;
+      }
+      pointerAnchorRef.current = {
+        blockId,
+        offset: readEditableOffsetFromField(liveBlock, liveField, "start"),
+      };
     });
   };
 
@@ -796,50 +859,39 @@ export function SceneEditor() {
       return;
     }
 
-    if (blockLineSelection && hasBlockLineSelection(blocks, blockLineSelection)) {
-      const deleted = deleteBlockLineRange(blocks, blockLineSelection);
+    if (blockTextSelection && hasBlockTextSelection(blocks, blockTextSelection)) {
+      const deleted = deleteBlockTextRange(blocks, blockTextSelection);
       if (!deleted) {
         return;
       }
-      const placeholder = createNarrativeBlock("");
-      const withPlaceholder = [
-        ...deleted.blocks.slice(0, deleted.insertIndex),
-        placeholder,
-        ...deleted.blocks.slice(deleted.insertIndex),
-      ];
-      const result = insertPasteIntoBlocks(
-        withPlaceholder,
-        deleted.insertIndex,
-        "",
-        "",
-        pasteText,
-      );
+      const focusIndex = deleted.blocks.findIndex((entry) => entry.id === deleted.focusBlockId);
+      const focusBlock = deleted.blocks[focusIndex];
+      if (!focusBlock || focusIndex === -1) {
+        return;
+      }
+      const editable = getBlockEditableText(focusBlock);
+      const editableBefore = editable.slice(0, deleted.focusEditableOffset);
+      const editableAfter = editable.slice(deleted.focusEditableOffset);
+      const { before, after } = toPasteFieldSlices(focusBlock, editableBefore, editableAfter);
+      const result = insertPasteIntoBlocks(deleted.blocks, focusIndex, before, after, pasteText);
       if (!result) {
         return;
       }
       event.preventDefault();
       persistBlocks(result.blocks);
-      clearBlockLineSelection();
-      setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
+      clearBlockTextSelection();
+      const focusResultBlock = result.blocks.find((entry) => entry.id === result.focusBlockId);
+      setPendingFocus({
+        blockId: result.focusBlockId,
+        caret: focusResultBlock
+          ? domOffsetToEditableOffset(focusResultBlock, result.focusCaret)
+          : 0,
+      });
       return;
     }
 
     const start = field.selectionStart ?? field.value.length;
     const end = field.selectionEnd ?? field.value.length;
-    if (start !== end) {
-      const before = field.value.slice(0, start);
-      const after = field.value.slice(end);
-      const result = insertPasteIntoBlocks(blocks, blockIndex, before, after, pasteText);
-      if (!result) {
-        return;
-      }
-      event.preventDefault();
-      persistBlocks(result.blocks);
-      clearBlockLineSelection();
-      setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
-      return;
-    }
-
     const before = field.value.slice(0, start);
     const after = field.value.slice(end);
 
@@ -850,8 +902,14 @@ export function SceneEditor() {
 
     event.preventDefault();
     persistBlocks(result.blocks);
-    clearBlockLineSelection();
-    setPendingFocus({ blockId: result.focusBlockId, caret: result.focusCaret });
+    clearBlockTextSelection();
+    const focusResultBlock = result.blocks.find((entry) => entry.id === result.focusBlockId);
+    setPendingFocus({
+      blockId: result.focusBlockId,
+      caret: focusResultBlock
+        ? domOffsetToEditableOffset(focusResultBlock, result.focusCaret)
+        : 0,
+    });
   };
 
   const registerRef = (id: string, node: FieldElement | null) => {
@@ -919,7 +977,7 @@ export function SceneEditor() {
     const newBlock = createDialogueBlock(nextSpeakerId, DIALOGUE_SCAFFOLD);
     const next = [...blocks.slice(0, index + 1), newBlock, ...blocks.slice(index + 1)];
     persistBlocks(next);
-    setPendingFocus({ blockId: newBlock.id, caret: 1 });
+    setPendingFocus({ blockId: newBlock.id, caret: 0 });
     if (!isQuoteMode && !nextSpeakerId && sceneCharacters.length >= 2) {
       setPendingSpeakerMenuForId(newBlock.id);
     }
@@ -932,11 +990,10 @@ export function SceneEditor() {
     const focusIndex = index > 0 ? index - 1 : 0;
     const focusBlock = next[focusIndex];
     if (focusBlock) {
-      const caret =
-        focusBlock.type === "dialogue" && focusBlock.text === DIALOGUE_SCAFFOLD
-          ? 1
-          : focusBlock.text.length;
-      setPendingFocus({ blockId: focusBlock.id, caret });
+      setPendingFocus({
+        blockId: focusBlock.id,
+        caret: getBlockEditableText(focusBlock).length,
+      });
     }
     return true;
   };
@@ -974,11 +1031,10 @@ export function SceneEditor() {
     const next = [...blocks];
     next[index] = nextBlock;
     persistBlocks(next);
-    const focusCaret =
-      nextBlock.type === "dialogue" && nextBlock.text === DIALOGUE_SCAFFOLD
-        ? 1
-        : nextBlock.text.length;
-    setPendingFocus({ blockId: current.id, caret: focusCaret });
+    setPendingFocus({
+      blockId: current.id,
+      caret: getBlockEditableText(nextBlock).length,
+    });
     if (autoOpenMenu) {
       setPendingSpeakerMenuForId(current.id);
     }
@@ -1066,6 +1122,9 @@ export function SceneEditor() {
     const node = inputRefs.current[target.id];
     if (!node) return false;
     focusElementAtCaretX(node, caretX, position);
+    const editable = domOffsetToEditableOffset(target, node.selectionStart ?? 0);
+    const clampedDom = editableOffsetToDomOffset(target, editable);
+    node.setSelectionRange(clampedDom, clampedDom);
     return true;
   };
 
@@ -1074,20 +1133,20 @@ export function SceneEditor() {
       <div className="scene-editor-body">
         <div className="scene-editor-blocks">
           {blocks.map((block, index) => {
-            const highlight = getBlockRangeHighlightState(blocks, blockLineSelection, block.id);
-            const rowClassName = highlight === "full" ? "is-block-range-full" : undefined;
+            const highlight = getBlockHighlightRange(blocks, blockTextSelection, block.id);
 
             if (block.type === "narrative") {
               return (
                 <NarrativeBlockRow
                   key={block.id}
                   block={block}
-                  rowClassName={rowClassName}
+                  highlight={highlight}
+                  virtualSelecting={virtualSelecting && highlight.type === "range"}
                   registerRef={registerRef}
                   onTextChange={(value) => updateNarrativeText(index, value)}
                   onPaste={(input, event) => handleBlockPaste(index, input, event)}
                   onFieldMouseDown={(input, event) => handleFieldMouseDown(block.id, input, event)}
-                  onFieldKeyDown={(input, event) => handleBlockLineKeyDown(input, event)}
+                  onFieldKeyDown={(input, event) => handleBlockTextKeyDown(input, event)}
                   onEnter={(input) => handleNarrativeEnter(index, input)}
                   onBackspaceEmpty={() => deleteBlockAt(index)}
                   onArrowUp={(input) => focusFromCurrent(input, "prev", index)}
@@ -1103,7 +1162,8 @@ export function SceneEditor() {
               <DialogueBlockRow
                 key={block.id}
                 block={block}
-                rowClassName={rowClassName}
+                highlight={highlight}
+                virtualSelecting={virtualSelecting && highlight.type === "range"}
                 showSpeaker={!isQuoteMode}
                 speakerName={speakerName}
                 speakerColor={speaker?.color}
@@ -1117,7 +1177,7 @@ export function SceneEditor() {
                   handleFieldMouseDown(block.id, textarea, event)
                 }
                 onTextKeyDown={(event) => {
-                  if (handleBlockLineKeyDown(event.currentTarget, event)) {
+                  if (handleBlockTextKeyDown(event.currentTarget, event)) {
                     return;
                   }
                   if (event.key === "Enter" && !event.shiftKey) {

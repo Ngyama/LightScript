@@ -1045,16 +1045,11 @@ body {
 }
 
 .scene-editor-blocks .block-input {
-  user-select: none;
+  user-select: text;
 }
 
 .scene-editor-blocks .block-input::selection {
-  background: transparent;
-}
-
-.block-editor-row.is-block-range-full .block-input {
-  background: rgba(72, 120, 210, 0.14);
-  border-radius: 4px;
+  background: rgba(72, 120, 210, 0.28);
 }
 
 .block-editor-content {
@@ -1062,6 +1057,43 @@ body {
   flex-direction: column;
   gap: 0;
   width: 100%;
+  position: relative;
+}
+
+.block-editor-content.is-virtual-selecting .block-input.is-virtual-hidden-text {
+  color: transparent;
+  caret-color: #1f1f1f;
+  -webkit-text-fill-color: transparent;
+}
+
+.block-selection-mirror {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  padding: 8px 0;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #1f1f1f;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+}
+
+.block-selection-mirror--narrative {
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.block-selection-hl {
+  background: rgba(72, 120, 210, 0.28);
+  border-radius: 2px;
+}
+
+.block-selection-scaffold {
+  color: #1f1f1f;
 }
 
 .block-input {
