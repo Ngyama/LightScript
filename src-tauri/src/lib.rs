@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use tauri::Manager;
+use tauri::{LogicalSize, Size};
 
 #[derive(Default, Deserialize, Serialize)]
 struct AppSettings {
@@ -479,6 +480,44 @@ fn read_text_file(path: String) -> Result<String, String> {
   fs::read_to_string(&file_path).map_err(|error| format!("failed to read file: {error}"))
 }
 
+/// Preferred design size. On smaller screens we scale down to fit the work area
+/// while keeping the 16:10 aspect ratio; on larger screens we stay at design size
+/// so the writing chrome doesn't stretch too thin.
+const DESIGN_WINDOW_WIDTH: f64 = 1600.0;
+const DESIGN_WINDOW_HEIGHT: f64 = 1000.0;
+const DESIGN_ASPECT: f64 = DESIGN_WINDOW_WIDTH / DESIGN_WINDOW_HEIGHT;
+/// Leave headroom for taskbars / docks and a little breathing room around the frame.
+const SCREEN_FIT_RATIO: f64 = 0.9;
+const MIN_WINDOW_WIDTH: f64 = 1100.0;
+const MIN_WINDOW_HEIGHT: f64 = 700.0;
+
+fn fit_window_to_monitor(window: &tauri::WebviewWindow) {
+  let Ok(Some(monitor)) = window.current_monitor() else {
+    return;
+  };
+
+  let scale = monitor.scale_factor();
+  let work = monitor.work_area().size;
+  let available_w = (work.width as f64 / scale) * SCREEN_FIT_RATIO;
+  let available_h = (work.height as f64 / scale) * SCREEN_FIT_RATIO;
+
+  let mut width = DESIGN_WINDOW_WIDTH.min(available_w);
+  let mut height = DESIGN_WINDOW_HEIGHT.min(available_h);
+
+  // Clamp to design aspect so the layout stays predictable.
+  if width / height > DESIGN_ASPECT {
+    width = height * DESIGN_ASPECT;
+  } else {
+    height = width / DESIGN_ASPECT;
+  }
+
+  width = width.max(MIN_WINDOW_WIDTH.min(available_w));
+  height = height.max(MIN_WINDOW_HEIGHT.min(available_h));
+
+  let _ = window.set_size(Size::Logical(LogicalSize::new(width.round(), height.round())));
+  let _ = window.center();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -499,6 +538,7 @@ pub fn run() {
     .setup(|app| {
       if let Some(window) = app.get_webview_window("main") {
         window.set_icon(tauri::include_image!("icons/32x32.png"))?;
+        fit_window_to_monitor(&window);
       }
       app.handle().plugin(tauri_plugin_dialog::init())?;
       if cfg!(debug_assertions) {
