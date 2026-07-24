@@ -1032,15 +1032,15 @@ body {
 .block-editor-row {
   display: grid;
   grid-template-columns: 110px minmax(0, 1fr);
-  align-items: baseline;
+  align-items: start;
   gap: 14px;
 }
 
 .block-editor-gutter {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: flex-end;
-  min-height: 1em;
+  min-height: 36px;
   user-select: none;
 }
 
@@ -1082,9 +1082,10 @@ body {
 }
 
 .block-selection-mirror--narrative {
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   overflow: hidden;
-  text-overflow: clip;
 }
 
 .block-selection-hl {
@@ -1097,7 +1098,7 @@ body {
 }
 
 .block-input {
-  flex: 1;
+  flex: none;
   min-height: 36px;
   border: none;
   border-radius: 0;
@@ -1131,7 +1132,11 @@ textarea.block-input,
   overflow: hidden;
   display: block;
   width: 100%;
+  box-sizing: border-box;
   font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Speaker chip + popup */
@@ -1644,6 +1649,61 @@ textarea.block-input,
   font-size: 12px;
   line-height: 1.45;
   color: rgba(31, 31, 31, 0.5);
+}
+
+.settings-hint.is-error {
+  color: #a33a3a;
+}
+
+.settings-update-button {
+  width: 100%;
+  border: 1px solid rgba(31, 31, 31, 0.18);
+  background: #fafafa;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: rgba(31, 31, 31, 0.85);
+  cursor: pointer;
+}
+
+.settings-update-button:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.settings-update-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.update-dialog {
+  width: min(420px, calc(100vw - 64px));
+}
+
+.update-dialog-notes {
+  margin: 0 0 12px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(31, 31, 31, 0.04);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  color: rgba(31, 31, 31, 0.72);
+}
+
+.update-dialog-progress {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: rgba(31, 31, 31, 0.7);
+}
+
+.update-dialog-error {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #a33a3a;
 }
 
 .settings-footer {

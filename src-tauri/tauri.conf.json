@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "LightScript",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "identifier": "com.ngyama.lightscript",
   "build": {
     "frontendDist": "../dist",
@@ -31,6 +31,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,6 +41,17 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBNzA3MjJGQkJFOEYyRTUKUldUbDh1aTdMM0p3MmlqK2o2blV4Vm1HWUczWXgyNnF6QnV4RlN0WEg5ZnhHRWhEUU52bDZJZlAK",
+      "endpoints": [
+        "https://github.com/Ngyama/LightScript/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

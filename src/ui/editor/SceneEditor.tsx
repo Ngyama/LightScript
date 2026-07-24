@@ -20,7 +20,6 @@ import {
   hasBlockTextSelection,
   hitTestBlockTextPoint,
   insertEditableTextAt,
-  measureCaretLeft,
   readEditableOffsetFromField,
   shouldActivateVirtualSelection,
   toPasteFieldSlices,
@@ -31,10 +30,16 @@ import {
   useSelectedScene,
 } from "../../state/editorStore";
 import { characterChipStyle } from "../characterPalette";
+import { createTextMeasureContext } from "./blockLineMeasure";
 import {
-  textFitsBlockLineWidth,
-  truncateToBlockLineWidth,
-} from "./blockLineMeasure";
+  isCaretAtFirstVisualLine,
+  isCaretAtLastVisualLine,
+  measureCaretLeftOnVisualLine,
+  softLineStartsForElement,
+  stripHardNewlines,
+  visualLineIndexAt,
+  visualLineRange,
+} from "./blockVisualLines";
 import { createDialogueBlock, createNarrativeBlock } from "./inputStateMachine";
 import { computeSceneStats } from "./sceneStats";
 
@@ -107,16 +112,29 @@ function pickNextSpeakerId(
   return undefined;
 }
 
-type FieldElement = HTMLInputElement | HTMLTextAreaElement;
+type FieldElement = HTMLTextAreaElement;
 
 function changeBlockType(block: SceneBlock, newType: BlockType): SceneBlock {
   if (block.type === newType) return block;
   if (newType === "dialogue") {
     const narrative = block as NarrativeBlock;
-    return { id: narrative.id, type: "dialogue", characterId: undefined, text: narrative.text };
+    return {
+      id: narrative.id,
+      type: "dialogue",
+      characterId: undefined,
+      text: stripHardNewlines(narrative.text),
+    };
   }
   const dialogue = block as DialogueBlock;
-  return { id: dialogue.id, type: "narrative", text: dialogue.text };
+  return { id: dialogue.id, type: "narrative", text: stripHardNewlines(dialogue.text) };
+}
+
+function measureCaretLeft(element: FieldElement): number {
+  const measure = createTextMeasureContext(element);
+  if (!measure) return 0;
+  const cs = window.getComputedStyle(element);
+  const paddingLeft = parseFloat(cs.paddingLeft || "0");
+  return measureCaretLeftOnVisualLine(element, measure.measureText, paddingLeft);
 }
 
 function focusElementAtCaretX(
@@ -126,27 +144,45 @@ function focusElementAtCaretX(
 ): void {
   element.focus();
   const value = element.value;
+  const starts = softLineStartsForElement(value, element);
   let lineStart = 0;
   let lineEnd = value.length;
-  if (element.tagName === "TEXTAREA" && value.includes("\n")) {
-    if (position === "first-line") {
-      lineEnd = value.indexOf("\n");
-    } else if (position === "last-line") {
-      lineStart = value.lastIndexOf("\n") + 1;
-    }
+  if (position === "first-line") {
+    const range = visualLineRange(starts, 0, value.length);
+    lineStart = range.start;
+    lineEnd = range.end;
+  } else if (position === "last-line") {
+    const range = visualLineRange(starts, starts.length - 1, value.length);
+    lineStart = range.start;
+    lineEnd = range.end;
+  } else {
+    const caret = element.selectionEnd ?? value.length;
+    const range = visualLineRange(starts, visualLineIndexAt(caret, starts), value.length);
+    lineStart = range.start;
+    lineEnd = range.end;
   }
   const idx = findClosestCaretIndexInRange(element, targetX, lineStart, lineEnd);
   element.setSelectionRange(idx, idx);
 }
 
-function isCaretAtFirstLogicalLine(textarea: HTMLTextAreaElement): boolean {
-  const pos = textarea.selectionStart ?? 0;
-  return textarea.value.slice(0, pos).indexOf("\n") === -1;
+function resolveBlockLineHeight(cs: CSSStyleDeclaration): number {
+  const fontSize = parseFloat(cs.fontSize) || 16;
+  if (cs.lineHeight === "normal") {
+    return fontSize * 1.6;
+  }
+  const parsed = parseFloat(cs.lineHeight);
+  return Number.isFinite(parsed) ? parsed : fontSize * 1.6;
 }
 
-function isCaretAtLastLogicalLine(textarea: HTMLTextAreaElement): boolean {
-  const pos = textarea.selectionEnd ?? textarea.value.length;
-  return textarea.value.slice(pos).indexOf("\n") === -1;
+/** Grow so each soft-wrapped visual line gets a full single-block line box. */
+function autoSizeBlockField(node: HTMLTextAreaElement): void {
+  const cs = window.getComputedStyle(node);
+  const lineHeight = resolveBlockLineHeight(cs);
+  const paddingTop = parseFloat(cs.paddingTop) || 0;
+  const paddingBottom = parseFloat(cs.paddingBottom) || 0;
+  const visualLines = Math.max(1, softLineStartsForElement(node.value, node).length);
+  const height = paddingTop + paddingBottom + lineHeight * visualLines;
+  node.style.height = `${height}px`;
 }
 
 interface SpeakerMenuState {
@@ -225,15 +261,21 @@ interface NarrativeBlockRowProps {
   block: NarrativeBlock;
   highlight: BlockHighlight;
   virtualSelecting: boolean;
-  registerRef: (id: string, node: HTMLInputElement | null) => void;
+  registerRef: (id: string, node: HTMLTextAreaElement | null) => void;
   onTextChange: (value: string) => void;
-  onPaste: (input: HTMLInputElement, event: React.ClipboardEvent<HTMLInputElement>) => void;
-  onFieldMouseDown: (input: HTMLInputElement, event: React.MouseEvent<HTMLInputElement>) => void;
-  onFieldKeyDown: (input: HTMLInputElement, event: React.KeyboardEvent<HTMLInputElement>) => boolean;
-  onEnter: (input: HTMLInputElement) => void;
+  onPaste: (input: HTMLTextAreaElement, event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  onFieldMouseDown: (
+    input: HTMLTextAreaElement,
+    event: React.MouseEvent<HTMLTextAreaElement>,
+  ) => void;
+  onFieldKeyDown: (
+    input: HTMLTextAreaElement,
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+  ) => boolean;
+  onEnter: (input: HTMLTextAreaElement) => void;
   onBackspaceEmpty: () => boolean;
-  onArrowUp: (input: HTMLInputElement) => boolean;
-  onArrowDown: (input: HTMLInputElement) => boolean;
+  onArrowUp: (input: HTMLTextAreaElement) => boolean;
+  onArrowDown: (input: HTMLTextAreaElement) => boolean;
 }
 
 function NarrativeBlockRow({
@@ -250,43 +292,19 @@ function NarrativeBlockRow({
   onArrowUp,
   onArrowDown,
 }: NarrativeBlockRowProps) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const composingRef = useRef(false);
-  const onTextChangeRef = useRef(onTextChange);
-  onTextChangeRef.current = onTextChange;
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useLayoutEffect(() => {
-    const node = inputRef.current;
+    const node = textareaRef.current;
     if (!node) return;
-
-    const clampIfNeeded = (): void => {
-      const fitted = truncateToBlockLineWidth(block.text, node);
-      if (fitted !== block.text) {
-        onTextChangeRef.current(fitted);
-      }
-    };
-
-    clampIfNeeded();
-    const observer = new ResizeObserver(clampIfNeeded);
-    observer.observe(node);
+    const resize = (): void => autoSizeBlockField(node);
+    resize();
+    const parent = node.parentElement;
+    if (!parent) return;
+    const observer = new ResizeObserver(resize);
+    observer.observe(parent);
     return () => observer.disconnect();
   }, [block.text]);
-
-  const tryCommitText = (value: string, input: HTMLInputElement): void => {
-    if (composingRef.current) {
-      onTextChange(value);
-      return;
-    }
-    if (!textFitsBlockLineWidth(value, input)) return;
-    onTextChange(value);
-  };
-
-  const handlePaste = (event: React.ClipboardEvent<HTMLInputElement>): void => {
-    if (composingRef.current) {
-      return;
-    }
-    onPaste(event.currentTarget, event);
-  };
 
   return (
     <div className="block-editor-row">
@@ -295,30 +313,23 @@ function NarrativeBlockRow({
         {highlight.type === "range" ? (
           <BlockSelectionMirror block={block} highlight={highlight} />
         ) : null}
-        <input
+        <textarea
           ref={(node) => {
-            inputRef.current = node;
+            textareaRef.current = node;
             registerRef(block.id, node);
           }}
           className={[
             "block-input",
-            "block-input-single-line",
+            "block-input-textarea",
             virtualSelecting ? "is-virtual-hidden-text" : "",
           ]
             .filter(Boolean)
             .join(" ")}
+          rows={1}
           value={block.text}
           onMouseDown={(event) => onFieldMouseDown(event.currentTarget, event)}
-          onChange={(event) => tryCommitText(event.target.value, event.target)}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={(event) => {
-            composingRef.current = false;
-            const fitted = truncateToBlockLineWidth(event.currentTarget.value, event.currentTarget);
-            onTextChange(fitted);
-          }}
-          onPaste={handlePaste}
+          onChange={(event) => onTextChange(stripHardNewlines(event.target.value))}
+          onPaste={(event) => onPaste(event.currentTarget, event)}
           onKeyDown={(event) => {
             if (onFieldKeyDown(event.currentTarget, event)) {
               return;
@@ -331,12 +342,16 @@ function NarrativeBlockRow({
                 event.preventDefault();
               }
             } else if (event.key === "ArrowUp") {
-              if (onArrowUp(event.currentTarget)) {
-                event.preventDefault();
+              if (isCaretAtFirstVisualLine(event.currentTarget)) {
+                if (onArrowUp(event.currentTarget)) {
+                  event.preventDefault();
+                }
               }
             } else if (event.key === "ArrowDown") {
-              if (onArrowDown(event.currentTarget)) {
-                event.preventDefault();
+              if (isCaretAtLastVisualLine(event.currentTarget)) {
+                if (onArrowDown(event.currentTarget)) {
+                  event.preventDefault();
+                }
               }
             } else {
               handleEditorTabKey(event, { allowSpeakerHotkey: false });
@@ -389,8 +404,13 @@ function DialogueBlockRow({
   useLayoutEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
-    node.style.height = "auto";
-    node.style.height = `${node.scrollHeight}px`;
+    const resize = (): void => autoSizeBlockField(node);
+    resize();
+    const parent = node.parentElement;
+    if (!parent) return;
+    const observer = new ResizeObserver(resize);
+    observer.observe(parent);
+    return () => observer.disconnect();
   }, [block.text]);
 
   return (
@@ -426,7 +446,7 @@ function DialogueBlockRow({
           value={block.text}
           placeholder="台词内容"
           onMouseDown={(event) => onFieldMouseDown(event.currentTarget, event)}
-          onChange={(event) => onTextChange(event.target.value)}
+          onChange={(event) => onTextChange(stripHardNewlines(event.target.value))}
           onPaste={(event) => onPaste(event.currentTarget, event)}
           onKeyDown={onTextKeyDown}
         />
@@ -471,6 +491,19 @@ export function SceneEditor() {
     if (!scene) return;
     if (scene.blocks.length === 0) {
       setSceneBlocks(scene.id, [createNarrativeBlock()]);
+      return;
+    }
+    let dirty = false;
+    const sanitized = scene.blocks.map((block) => {
+      const text = stripHardNewlines(block.text);
+      if (text === block.text) {
+        return block;
+      }
+      dirty = true;
+      return { ...block, text };
+    });
+    if (dirty) {
+      setSceneBlocks(scene.id, sanitized);
     }
   }, [scene, setSceneBlocks]);
 
@@ -728,14 +761,15 @@ export function SceneEditor() {
       return false;
     }
     const focusBlock = deleted.blocks[focusIndex];
-    const nextBlock = insertEditableTextAt(focusBlock, deleted.focusEditableOffset, text);
+    const sanitized = stripHardNewlines(text);
+    const nextBlock = insertEditableTextAt(focusBlock, deleted.focusEditableOffset, sanitized);
     const nextBlocks = [...deleted.blocks];
     nextBlocks[focusIndex] = nextBlock;
     persistBlocks(nextBlocks);
     clearBlockTextSelection();
     setPendingFocus({
       blockId: nextBlock.id,
-      caret: deleted.focusEditableOffset + text.length,
+      caret: deleted.focusEditableOffset + sanitized.length,
     });
     return true;
   };
@@ -920,7 +954,7 @@ export function SceneEditor() {
     const current = blocks[index];
     if (!current || current.type !== "narrative") return;
     const next = [...blocks];
-    next[index] = { ...current, text: value };
+    next[index] = { ...current, text: stripHardNewlines(value) };
     persistBlocks(next);
   };
 
@@ -928,7 +962,7 @@ export function SceneEditor() {
     const current = blocks[index];
     if (!current || current.type !== "dialogue") return;
     const next = [...blocks];
-    next[index] = { ...current, text: value };
+    next[index] = { ...current, text: stripHardNewlines(value) };
     persistBlocks(next);
   };
 
@@ -956,7 +990,7 @@ export function SceneEditor() {
     setPendingFocus({ blockId: newBlock.id, caret: 0 });
   };
 
-  const handleNarrativeEnter = (index: number, input: HTMLInputElement) => {
+  const handleNarrativeEnter = (index: number, input: HTMLTextAreaElement) => {
     const value = input.value;
     if (value.trim().length === 0) {
       convertBlockType(index, "dialogue");
@@ -1109,12 +1143,12 @@ export function SceneEditor() {
     if (direction === "prev") {
       if (blockIndex > 0) {
         target = blocks[blockIndex - 1];
-        if (target.type === "dialogue") position = "last-line";
+        position = "last-line";
       }
     } else if (direction === "next") {
       if (blockIndex < blocks.length - 1) {
         target = blocks[blockIndex + 1];
-        if (target.type === "dialogue") position = "first-line";
+        position = "first-line";
       }
     }
 
@@ -1180,7 +1214,7 @@ export function SceneEditor() {
                   if (handleBlockTextKeyDown(event.currentTarget, event)) {
                     return;
                   }
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (event.key === "Enter") {
                     event.preventDefault();
                     if (isDialogueEmpty(event.currentTarget.value)) {
                       convertBlockType(index, "narrative");
@@ -1195,13 +1229,13 @@ export function SceneEditor() {
                       event.preventDefault();
                     }
                   } else if (event.key === "ArrowUp") {
-                    if (isCaretAtFirstLogicalLine(event.currentTarget)) {
+                    if (isCaretAtFirstVisualLine(event.currentTarget)) {
                       if (focusFromCurrent(event.currentTarget, "prev", index)) {
                         event.preventDefault();
                       }
                     }
                   } else if (event.key === "ArrowDown") {
-                    if (isCaretAtLastLogicalLine(event.currentTarget)) {
+                    if (isCaretAtLastVisualLine(event.currentTarget)) {
                       if (focusFromCurrent(event.currentTarget, "next", index)) {
                         event.preventDefault();
                       }

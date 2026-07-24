@@ -27,9 +27,12 @@ import { ExportDialog } from "./ui/floating/ExportDialog";
 import { ImportDialog } from "./ui/floating/ImportDialog";
 import { ModalDialog } from "./ui/floating/ModalDialog";
 import { SettingsDialog } from "./ui/floating/SettingsDialog";
+import { UpdateAvailableDialog } from "./ui/floating/UpdateAvailableDialog";
 import { SavedStatus } from "./ui/floating/SavedStatus";
 import { OrbitNavigator } from "./ui/navigation/OrbitNavigator";
 import { TitleBar } from "./ui/titlebar/TitleBar";
+import { checkForAppUpdate } from "./updates/appUpdater";
+import type { Update } from "@tauri-apps/plugin-updater";
 
 type AppStage = "splash" | "setupRepo" | "projectHub" | "editor";
 
@@ -76,6 +79,8 @@ export default function App() {
   const [externalUpdate, setExternalUpdate] = useState(false);
   const [conflictCopies, setConflictCopies] = useState<string[]>([]);
   const [conflictDismissed, setConflictDismissed] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const updateCheckedRef = useRef(false);
   const newProjectInputRef = useRef<HTMLInputElement>(null);
 
   // Joined key of the last detected conflict-copy set, so a freshly appearing
@@ -116,6 +121,26 @@ export default function App() {
     lastStageRef.current = stage;
     const timer = window.setTimeout(() => setPrevStage(null), STAGE_TRANSITION_MS);
     return () => window.clearTimeout(timer);
+  }, [stage]);
+
+  // Quiet background update check once the splash screen is gone.
+  useEffect(() => {
+    if (stage === "splash" || updateCheckedRef.current) return;
+    updateCheckedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const update = await checkForAppUpdate();
+        if (!cancelled && update) {
+          setPendingUpdate(update);
+        }
+      } catch {
+        // No release yet, offline, or unsigned local build — stay quiet.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [stage]);
 
   // Bootstrap pre-loads repo path + project list in the background so the
@@ -638,7 +663,18 @@ export default function App() {
             onError={(message) => setErrorMessage(message)}
           />
         )}
-        {isSettingsOpen && <SettingsDialog onClose={() => setIsSettingsOpen(false)} />}
+        {isSettingsOpen && (
+          <SettingsDialog
+            onClose={() => setIsSettingsOpen(false)}
+            onUpdateAvailable={(update) => setPendingUpdate(update)}
+          />
+        )}
+        {pendingUpdate && (
+          <UpdateAvailableDialog
+            update={pendingUpdate}
+            onClose={() => setPendingUpdate(null)}
+          />
+        )}
       </div>
     );
   };

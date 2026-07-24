@@ -1,10 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { Update } from "@tauri-apps/plugin-updater";
 import type { WritingMode } from "../../domain/model";
 import { useEditorStore } from "../../state/editorStore";
+import {
+  checkForAppUpdate,
+  formatUpdateError,
+  getAppVersion,
+} from "../../updates/appUpdater";
 
-// Keep in sync with src-tauri/tauri.conf.json (productName / version).
 const APP_NAME = "LightScript";
-const APP_VERSION = "0.1.0";
 
 const FONT_OPTIONS = ["System Default", "Noto Sans JP", "Dancing Script"];
 const THEME_OPTIONS = ["Light", "Sepia", "Dark"];
@@ -24,11 +28,27 @@ const WRITING_MODE_OPTIONS: Array<{ value: WritingMode; label: string; hint: str
 
 interface SettingsDialogProps {
   onClose: () => void;
+  onUpdateAvailable: (update: Update) => void;
 }
 
-export function SettingsDialog({ onClose }: SettingsDialogProps) {
+type UpdateCheckState = "idle" | "checking" | "upToDate" | "error";
+
+export function SettingsDialog({ onClose, onUpdateAvailable }: SettingsDialogProps) {
   const writingMode = useEditorStore((state) => state.project.settings.writingMode);
   const setWritingMode = useEditorStore((state) => state.setWritingMode);
+  const [appVersion, setAppVersion] = useState("…");
+  const [updateState, setUpdateState] = useState<UpdateCheckState>("idle");
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getAppVersion().then((version) => {
+      if (!cancelled) setAppVersion(version);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -40,6 +60,25 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const handleCheckUpdate = async () => {
+    setUpdateState("checking");
+    setUpdateMessage(null);
+    try {
+      const update = await checkForAppUpdate();
+      if (update) {
+        setUpdateState("idle");
+        onUpdateAvailable(update);
+        onClose();
+        return;
+      }
+      setUpdateState("upToDate");
+      setUpdateMessage("已是最新版本");
+    } catch (error) {
+      setUpdateState("error");
+      setUpdateMessage(formatUpdateError(error));
+    }
+  };
 
   return (
     <div className="export-dialog-overlay" onMouseDown={onClose}>
@@ -103,10 +142,34 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
           </select>
         </div>
 
+        <div className="export-dialog-section">
+          <div className="settings-row-head">
+            <span className="export-dialog-label">更新</span>
+          </div>
+          <button
+            type="button"
+            className="settings-update-button"
+            onClick={() => void handleCheckUpdate()}
+            disabled={updateState === "checking"}
+          >
+            {updateState === "checking" ? "检查中…" : "检查更新"}
+          </button>
+          {updateMessage ? (
+            <p
+              className={`settings-hint${updateState === "error" ? " is-error" : ""}`}
+              aria-live="polite"
+            >
+              {updateMessage}
+            </p>
+          ) : (
+            <p className="settings-hint">有新版本时可在应用内下载并安装。</p>
+          )}
+        </div>
+
         <div className="settings-footer">
           <div className="settings-about">
             <span className="settings-about-name">{APP_NAME}</span>
-            <span className="settings-about-version">v{APP_VERSION}</span>
+            <span className="settings-about-version">v{appVersion}</span>
           </div>
           <button type="button" className="export-dialog-primary" onClick={onClose}>
             Done
