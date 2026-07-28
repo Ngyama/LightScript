@@ -417,48 +417,70 @@ fn write_text_export(target_path: String, content: String) -> Result<String, Str
   Ok(path.to_string_lossy().to_string())
 }
 
-/// Render a Scene JSON tree into a real Office Open XML .docx and write it to
-/// the user-chosen path. Tries to mirror the Markdown export structure:
-/// bold scene title, plain narrative paragraphs, "speaker: "quoted text""
-/// for dialogue blocks.
+/// Render one or more scenes into a .docx.
+/// Accepts either a single scene object `{ title, blocks }` (legacy) or
+/// `{ scenes: [ { title, blocks }, ... ] }` for merged multi-scene export.
 #[tauri::command]
 fn write_docx_export(target_path: String, scene_json: String) -> Result<String, String> {
-  let scene: Value =
+  let payload: Value =
     serde_json::from_str(&scene_json).map_err(|error| format!("invalid scene json: {error}"))?;
 
   let path = PathBuf::from(&target_path);
   ensure_parent_dir(&path)?;
 
-  let title = scene["title"].as_str().unwrap_or("Untitled").trim();
-  let mut docx = Docx::new().add_paragraph(
-    Paragraph::new().add_run(Run::new().add_text(title).bold().size(32)),
-  );
+  let scenes: Vec<&Value> = if let Some(list) = payload.get("scenes").and_then(|v| v.as_array()) {
+    list.iter().collect()
+  } else {
+    vec![&payload]
+  };
 
-  if let Some(blocks) = scene["blocks"].as_array() {
-    for block in blocks {
-      let block_type = block["type"].as_str().unwrap_or("");
-      let text = block["text"].as_str().unwrap_or("").trim();
-      if text.is_empty() {
-        continue;
-      }
+  let mut docx = Docx::new();
+  let mut wrote_any = false;
 
-      let paragraph = match block_type {
-        "narrative" => Paragraph::new().add_run(Run::new().add_text(text)),
-        "dialogue" => {
-          let speaker = block["character"].as_str().unwrap_or("").trim();
-          let quoted = format!("\u{201C}{}\u{201D}", text);
-          if speaker.is_empty() {
-            Paragraph::new().add_run(Run::new().add_text(quoted))
-          } else {
-            Paragraph::new()
-              .add_run(Run::new().add_text(format!("{}\u{FF1A}", speaker)).bold())
-              .add_run(Run::new().add_text(quoted))
-          }
-        }
-        _ => continue,
-      };
-      docx = docx.add_paragraph(paragraph);
+  for (index, scene) in scenes.iter().enumerate() {
+    if index > 0 {
+      docx = docx.add_paragraph(Paragraph::new());
     }
+
+    let title = scene["title"].as_str().unwrap_or("Untitled").trim();
+    docx = docx.add_paragraph(
+      Paragraph::new().add_run(Run::new().add_text(title).bold().size(32)),
+    );
+    wrote_any = true;
+
+    if let Some(blocks) = scene["blocks"].as_array() {
+      for block in blocks {
+        let block_type = block["type"].as_str().unwrap_or("");
+        let text = block["text"].as_str().unwrap_or("").trim();
+        if text.is_empty() {
+          continue;
+        }
+
+        let paragraph = match block_type {
+          "narrative" => Paragraph::new().add_run(Run::new().add_text(text)),
+          "dialogue" => {
+            let speaker = block["character"].as_str().unwrap_or("").trim();
+            let quoted = format!("\u{201C}{}\u{201D}", text);
+            if speaker.is_empty() {
+              Paragraph::new().add_run(Run::new().add_text(quoted))
+            } else {
+              Paragraph::new()
+                .add_run(Run::new().add_text(format!("{}\u{FF1A}", speaker)).bold())
+                .add_run(Run::new().add_text(quoted))
+            }
+          }
+          _ => continue,
+        };
+        docx = docx.add_paragraph(paragraph);
+        wrote_any = true;
+      }
+    }
+  }
+
+  if !wrote_any {
+    docx = docx.add_paragraph(
+      Paragraph::new().add_run(Run::new().add_text("Untitled").bold().size(32)),
+    );
   }
 
   let file =

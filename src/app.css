@@ -7,9 +7,41 @@
 }
 
 :root {
+  --ls-bg: #fbfbfa;
+  --ls-bg-soft: #fafafa;
+  --ls-bg-raised: #ffffff;
+  --ls-chrome: #f6f5f0;
+  --ls-fg: #1f1f1f;
+  --ls-fg-rgb: 31, 31, 31;
+  --ls-overlay: rgba(20, 20, 20, 0.32);
+  --ls-shadow: rgba(0, 0, 0, 0.12);
+  --ls-danger: #a33a3a;
+  --ls-selection: rgba(72, 120, 210, 0.28);
+  --ls-accent-soft: rgba(80, 90, 120, 0.14);
+  --ls-accent-border: rgba(80, 90, 120, 0.4);
+  --ls-btn-hover: #2f2f2f;
+
   font-family: "Segoe UI", system-ui, sans-serif;
-  color: #1f1f1f;
-  background-color: #fbfbfa;
+  color: var(--ls-fg);
+  background-color: var(--ls-bg);
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --ls-bg: #1e1f24;
+  --ls-bg-soft: #26272e;
+  --ls-bg-raised: #2c2d35;
+  --ls-chrome: #23242a;
+  --ls-fg: #e8e6e3;
+  --ls-fg-rgb: 232, 230, 227;
+  --ls-overlay: rgba(8, 8, 10, 0.55);
+  --ls-shadow: rgba(0, 0, 0, 0.45);
+  --ls-danger: #e08080;
+  --ls-selection: rgba(110, 150, 220, 0.35);
+  --ls-accent-soft: rgba(130, 145, 190, 0.22);
+  --ls-accent-border: rgba(150, 165, 210, 0.45);
+  --ls-btn-hover: #f2f0ed;
+  color-scheme: dark;
 }
 
 * {
@@ -21,7 +53,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #fbfbfa;
+  background: var(--ls-bg);
 }
 
 #app {
@@ -37,7 +69,7 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #fbfbfa;
+  background: var(--ls-bg);
   --hud-inset-right: 24px;
   --hud-inset-bottom: 16px;
 }
@@ -163,8 +195,8 @@ body {
   height: 34px;
   display: flex;
   align-items: stretch;
-  background: #f6f5f0;
-  border-bottom: 1px solid rgba(31, 31, 31, 0.06);
+  background: var(--ls-chrome);
+  border-bottom: 1px solid rgba(var(--ls-fg-rgb), 0.06);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -200,7 +232,7 @@ body {
 
 .title-bar-label {
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.62);
+  color: rgba(var(--ls-fg-rgb), 0.62);
   letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
@@ -219,9 +251,9 @@ body {
   height: 22px;
   padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid rgba(31, 31, 31, 0.12);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.12);
   background: rgba(255, 255, 255, 0.5);
-  color: rgba(31, 31, 31, 0.72);
+  color: rgba(var(--ls-fg-rgb), 0.72);
   font: inherit;
   font-size: 11px;
   letter-spacing: 0.02em;
@@ -233,8 +265,8 @@ body {
 .title-bar-pill:hover,
 .title-bar-pill:focus-visible {
   background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(31, 31, 31, 0.2);
-  color: #1f1f1f;
+  border-color: rgba(var(--ls-fg-rgb), 0.2);
+  color: var(--ls-fg);
   outline: none;
 }
 
@@ -247,10 +279,10 @@ body {
   width: 100%;
   height: 24px;
   padding: 0 10px;
-  border: 1px solid rgba(31, 31, 31, 0.12);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.12);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.72);
-  color: #1f1f1f;
+  color: var(--ls-fg);
   font: inherit;
   font-size: 12px;
   outline: none;
@@ -258,13 +290,13 @@ body {
 }
 
 .title-bar-search-input::placeholder {
-  color: rgba(31, 31, 31, 0.38);
+  color: rgba(var(--ls-fg-rgb), 0.38);
 }
 
 .title-bar-search-input:focus {
-  border-color: rgba(31, 31, 31, 0.22);
-  background: #ffffff;
-  box-shadow: 0 0 0 2px rgba(31, 31, 31, 0.06);
+  border-color: rgba(var(--ls-fg-rgb), 0.22);
+  background: var(--ls-bg-raised);
+  box-shadow: 0 0 0 2px rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .title-bar-search-panel {
@@ -274,9 +306,9 @@ body {
   right: 0;
   max-height: 320px;
   overflow-y: auto;
-  border: 1px solid rgba(31, 31, 31, 0.1);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.1);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--ls-bg-raised);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
   z-index: 200;
 }
@@ -285,7 +317,7 @@ body {
   margin: 0;
   padding: 14px 12px;
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.45);
+  color: rgba(var(--ls-fg-rgb), 0.45);
   text-align: center;
 }
 
@@ -312,12 +344,12 @@ body {
 
 .title-bar-search-item:hover,
 .title-bar-search-item.is-active {
-  background: rgba(31, 31, 31, 0.05);
+  background: rgba(var(--ls-fg-rgb), 0.05);
 }
 
 .title-bar-search-item-meta {
   font-size: 11px;
-  color: rgba(31, 31, 31, 0.48);
+  color: rgba(var(--ls-fg-rgb), 0.48);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -326,7 +358,7 @@ body {
 
 .title-bar-search-item-snippet {
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.82);
+  color: rgba(var(--ls-fg-rgb), 0.82);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -353,15 +385,15 @@ body {
   background: transparent;
   border: none;
   padding: 0;
-  color: rgba(31, 31, 31, 0.55);
+  color: rgba(var(--ls-fg-rgb), 0.55);
   cursor: pointer;
   transition: background 140ms ease, color 140ms ease;
 }
 
 .title-bar-button:hover,
 .title-bar-button:focus-visible {
-  background: rgba(31, 31, 31, 0.06);
-  color: #1f1f1f;
+  background: rgba(var(--ls-fg-rgb), 0.06);
+  color: var(--ls-fg);
   outline: none;
 }
 
@@ -372,7 +404,7 @@ body {
 }
 
 /* ============================================================
-   Startup screens (Setup Repo / Project Hub) — unchanged style
+   Startup screens (Setup Repo / Project Hub)  Eunchanged style
    ============================================================ */
 
 .startup-screen {
@@ -386,7 +418,7 @@ body {
 
 .startup-card {
   width: min(840px, 100%);
-  background: #ffffff;
+  background: var(--ls-bg-raised);
   border: 1px solid #dcdcdc;
   border-radius: 14px;
   padding: 20px;
@@ -421,7 +453,7 @@ body {
 .startup-card button {
   border: 1px solid #d0d0d0;
   border-radius: 8px;
-  background: #fff;
+  background: var(--ls-bg-raised);
   padding: 8px 12px;
   width: fit-content;
   cursor: pointer;
@@ -453,7 +485,7 @@ body {
   text-align: left;
   border: 1px solid #dddddd;
   border-radius: 10px;
-  background: #fafafa;
+  background: var(--ls-bg-soft);
   padding: 10px;
   cursor: pointer;
   display: flex;
@@ -483,7 +515,7 @@ body {
 }
 
 /* ============================================================
-   Editor stage — paper canvas, floating shell
+   Editor stage  Epaper canvas, floating shell
    ============================================================ */
 
 .app-shell {
@@ -491,8 +523,8 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #fbfbfa;
-  color: #1f1f1f;
+  background: var(--ls-bg);
+  color: var(--ls-fg);
 }
 
 .editor-canvas {
@@ -519,7 +551,7 @@ body {
   text-align: center;
   font-size: 14px;
   letter-spacing: 0.04em;
-  color: rgba(31, 31, 31, 0.48);
+  color: rgba(var(--ls-fg-rgb), 0.48);
   font-weight: 500;
   user-select: none;
   pointer-events: none;
@@ -531,7 +563,7 @@ body {
   font-size: 26px;
   font-weight: 700;
   margin: 0 0 12px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
 }
 
 .scene-header {
@@ -556,7 +588,7 @@ body {
   border: 1px solid rgba(72, 98, 140, 0.12);
   border-radius: 999px;
   background: rgba(72, 98, 140, 0.04);
-  color: rgba(31, 31, 31, 0.78);
+  color: rgba(var(--ls-fg-rgb), 0.78);
   font: inherit;
   font-size: 12px;
   line-height: 1;
@@ -577,7 +609,7 @@ body {
 .scene-title-empty {
   font-size: 18px;
   font-weight: 500;
-  color: rgba(31, 31, 31, 0.42);
+  color: rgba(var(--ls-fg-rgb), 0.42);
 }
 
 .scene-outline {
@@ -593,7 +625,7 @@ body {
   border: 1px solid rgba(72, 98, 140, 0.08);
   border-radius: 10px;
   background: rgba(72, 98, 140, 0.02);
-  color: rgba(31, 31, 31, 0.72);
+  color: rgba(var(--ls-fg-rgb), 0.72);
   font: inherit;
   font-size: 14px;
   line-height: 1.55;
@@ -619,12 +651,12 @@ body {
 .editor-empty-hint {
   text-align: center;
   margin: 32px auto 0;
-  color: rgba(31, 31, 31, 0.42);
+  color: rgba(var(--ls-fg-rgb), 0.42);
   font-size: 14px;
   user-select: none;
 }
 
-/* Character bar — chip-style, light, paper-friendly */
+/* Character bar  Echip-style, light, paper-friendly */
 
 .character-bar {
   display: flex;
@@ -644,7 +676,7 @@ body {
   padding: 3px 9px 3px 11px;
   border-radius: 999px;
   border: 1px solid var(--chip-border, transparent);
-  background: var(--chip-bg, rgba(31, 31, 31, 0.04));
+  background: var(--chip-bg, rgba(var(--ls-fg-rgb), 0.04));
   color: var(--chip-fg, #4c4c4c);
   font-size: 13px;
   letter-spacing: 0.02em;
@@ -652,7 +684,7 @@ body {
 }
 
 .character-chip:hover {
-  background: var(--chip-bg-hover, rgba(31, 31, 31, 0.08));
+  background: var(--chip-bg-hover, rgba(var(--ls-fg-rgb), 0.08));
 }
 
 .character-chip-name {
@@ -696,7 +728,7 @@ body {
   max-width: 200px;
   font: inherit;
   font-size: 13px;
-  color: var(--chip-fg, #1f1f1f);
+  color: var(--chip-fg, var(--ls-fg));
   outline: none;
   /* Field-sizing lets the input shrink/grow to the typed text on modern Chromium,
      matching the chip pill width. Older engines fall back to min-width. */
@@ -728,9 +760,9 @@ body {
 }
 
 .character-chip-add {
-  border: 1px dashed rgba(31, 31, 31, 0.16);
+  border: 1px dashed rgba(var(--ls-fg-rgb), 0.16);
   background: transparent;
-  color: rgba(31, 31, 31, 0.5);
+  color: rgba(var(--ls-fg-rgb), 0.5);
   font-size: 12px;
   padding: 3px 10px;
   border-radius: 999px;
@@ -739,30 +771,30 @@ body {
 }
 
 .character-chip-add:hover {
-  color: #1f1f1f;
-  border-color: rgba(31, 31, 31, 0.4);
-  background: rgba(31, 31, 31, 0.03);
+  color: var(--ls-fg);
+  border-color: rgba(var(--ls-fg-rgb), 0.4);
+  background: rgba(var(--ls-fg-rgb), 0.03);
 }
 
 .character-chip-input {
-  border: 1px solid rgba(31, 31, 31, 0.18);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.18);
   background: rgba(255, 255, 255, 0.85);
   border-radius: 999px;
   padding: 3px 10px;
   font: inherit;
   font-size: 13px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   width: 110px;
   outline: none;
   transition: border-color 140ms ease, background 140ms ease;
 }
 
 .character-chip-input:focus {
-  border-color: rgba(31, 31, 31, 0.4);
-  background: #ffffff;
+  border-color: rgba(var(--ls-fg-rgb), 0.4);
+  background: var(--ls-bg-raised);
 }
 
-/* Global character bar — collapsible project roster */
+/* Global character bar  Ecollapsible project roster */
 
 .global-character-bar {
   margin: -4px 0.5cm 4px;
@@ -780,27 +812,27 @@ body {
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: rgba(31, 31, 31, 0.72);
+  color: rgba(var(--ls-fg-rgb), 0.72);
   font-size: 12px;
   cursor: pointer;
   transition: background 140ms ease, border-color 140ms ease;
 }
 
 .global-character-bar-toggle:hover {
-  background: rgba(31, 31, 31, 0.04);
-  border-color: rgba(31, 31, 31, 0.08);
+  background: rgba(var(--ls-fg-rgb), 0.04);
+  border-color: rgba(var(--ls-fg-rgb), 0.08);
 }
 
 .global-character-bar-title {
   font-weight: 600;
-  color: rgba(31, 31, 31, 0.82);
+  color: rgba(var(--ls-fg-rgb), 0.82);
 }
 
 .global-character-bar-count {
   min-width: 18px;
   padding: 0 6px;
   border-radius: 999px;
-  background: rgba(31, 31, 31, 0.08);
+  background: rgba(var(--ls-fg-rgb), 0.08);
   text-align: center;
   line-height: 18px;
 }
@@ -822,7 +854,7 @@ body {
 
 .global-character-bar-more {
   font-size: 11px;
-  color: rgba(31, 31, 31, 0.45);
+  color: rgba(var(--ls-fg-rgb), 0.45);
   flex-shrink: 0;
 }
 
@@ -856,7 +888,7 @@ body {
   width: 100%;
   text-align: center;
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.45);
+  color: rgba(var(--ls-fg-rgb), 0.45);
 }
 
 .global-character-bar-confirm {
@@ -872,7 +904,7 @@ body {
 }
 
 .global-character-bar-confirm button {
-  border: 1px solid rgba(31, 31, 31, 0.14);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.14);
   background: transparent;
   border-radius: 6px;
   padding: 2px 8px;
@@ -897,9 +929,9 @@ body {
   min-width: 180px;
   max-width: 260px;
   padding: 8px;
-  border: 1px solid rgba(31, 31, 31, 0.12);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.12);
   border-radius: 10px;
-  background: #fff;
+  background: var(--ls-bg-raised);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
@@ -925,13 +957,13 @@ body {
 }
 
 .character-bar-picker-option:hover {
-  background: rgba(31, 31, 31, 0.06);
+  background: rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .character-bar-picker-hint {
   margin: 0 0 8px;
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.5);
+  color: rgba(var(--ls-fg-rgb), 0.5);
 }
 
 .character-bar-picker-input {
@@ -940,7 +972,7 @@ body {
 }
 
 /* ============================================================
-   Saved status (bottom-right) — faint timestamp
+   Saved status (bottom-right)  Efaint timestamp
    ============================================================ */
 
 .saved-status {
@@ -948,7 +980,7 @@ body {
   bottom: var(--hud-inset-bottom);
   right: var(--hud-inset-right);
   font-size: 12px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   opacity: 0.45;
   user-select: none;
   pointer-events: none;
@@ -957,7 +989,7 @@ body {
 }
 
 /* ============================================================
-   Scene editor — only blocks + stats footer now
+   Scene editor  Eonly blocks + stats footer now
    ============================================================ */
 
 .scene-editor {
@@ -986,7 +1018,7 @@ body {
   justify-content: flex-end;
   gap: 16px;
   font-size: 12px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   opacity: 0.45;
   letter-spacing: 0.02em;
   user-select: none;
@@ -1049,7 +1081,7 @@ body {
 }
 
 .scene-editor-blocks .block-input::selection {
-  background: rgba(72, 120, 210, 0.28);
+  background: var(--ls-selection);
 }
 
 .block-editor-content {
@@ -1062,7 +1094,7 @@ body {
 
 .block-editor-content.is-virtual-selecting .block-input.is-virtual-hidden-text {
   color: transparent;
-  caret-color: #1f1f1f;
+  caret-color: var(--ls-fg);
   -webkit-text-fill-color: transparent;
 }
 
@@ -1075,7 +1107,7 @@ body {
   font: inherit;
   font-size: 16px;
   line-height: 1.6;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   white-space: pre-wrap;
   word-break: break-word;
   overflow: hidden;
@@ -1089,12 +1121,12 @@ body {
 }
 
 .block-selection-hl {
-  background: rgba(72, 120, 210, 0.28);
+  background: var(--ls-selection);
   border-radius: 2px;
 }
 
 .block-selection-scaffold {
-  color: #1f1f1f;
+  color: var(--ls-fg);
 }
 
 .block-input {
@@ -1107,7 +1139,7 @@ body {
   line-height: 1.6;
   background: transparent;
   font-size: 16px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
 }
 
 .block-input:focus {
@@ -1115,7 +1147,7 @@ body {
 }
 
 .block-input::placeholder {
-  color: rgba(31, 31, 31, 0.3);
+  color: rgba(var(--ls-fg-rgb), 0.3);
 }
 
 input.block-input-single-line {
@@ -1143,8 +1175,8 @@ textarea.block-input,
 
 .speaker-chip {
   flex-shrink: 0;
-  border: 1px solid var(--chip-border, rgba(31, 31, 31, 0.12));
-  background: var(--chip-bg, rgba(31, 31, 31, 0.03));
+  border: 1px solid var(--chip-border, rgba(var(--ls-fg-rgb), 0.12));
+  background: var(--chip-bg, rgba(var(--ls-fg-rgb), 0.03));
   border-radius: 999px;
   font-size: 13px;
   color: var(--chip-fg, #4c4c4c);
@@ -1158,19 +1190,19 @@ textarea.block-input,
 }
 
 .speaker-chip:hover {
-  background: var(--chip-bg-hover, rgba(31, 31, 31, 0.07));
-  border-color: var(--chip-border, rgba(31, 31, 31, 0.25));
+  background: var(--chip-bg-hover, rgba(var(--ls-fg-rgb), 0.07));
+  border-color: var(--chip-border, rgba(var(--ls-fg-rgb), 0.25));
 }
 
 .speaker-chip.is-empty {
-  color: rgba(31, 31, 31, 0.4);
-  background: rgba(31, 31, 31, 0.03);
-  border-color: rgba(31, 31, 31, 0.12);
+  color: rgba(var(--ls-fg-rgb), 0.4);
+  background: rgba(var(--ls-fg-rgb), 0.03);
+  border-color: rgba(var(--ls-fg-rgb), 0.12);
 }
 
 .speaker-chip.is-empty:hover {
-  background: rgba(31, 31, 31, 0.07);
-  border-color: rgba(31, 31, 31, 0.25);
+  background: rgba(var(--ls-fg-rgb), 0.07);
+  border-color: rgba(var(--ls-fg-rgb), 0.25);
 }
 
 .speaker-chip.is-open {
@@ -1192,7 +1224,7 @@ textarea.block-input,
   overflow-y: auto;
   border: 1px solid #d4d4d4;
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--ls-bg-raised);
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.14);
   padding: 4px;
   z-index: 60;
@@ -1217,7 +1249,7 @@ textarea.block-input,
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1250,7 +1282,7 @@ textarea.block-input,
   height: 16px;
   font-size: 11px;
   color: #888;
-  background: rgba(31, 31, 31, 0.06);
+  background: rgba(var(--ls-fg-rgb), 0.06);
   border-radius: 4px;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
@@ -1336,7 +1368,7 @@ textarea.block-input,
   flex-shrink: 0;
   align-self: center;
   border: 1px solid #d9bd55;
-  background: #fff;
+  background: var(--ls-bg-raised);
   border-radius: 8px;
   padding: 6px 12px;
   font: inherit;
@@ -1349,13 +1381,13 @@ textarea.block-input,
 }
 
 /* ============================================================
-   Export dialog — overlay modal for choosing format + destination
+   Export dialog  Eoverlay modal for choosing format + destination
    ============================================================ */
 
 .export-dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 20, 20, 0.32);
+  background: var(--ls-overlay);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   display: grid;
@@ -1365,28 +1397,42 @@ textarea.block-input,
 
 .export-dialog {
   width: min(440px, calc(100vw - 64px));
-  background: #ffffff;
-  border: 1px solid rgba(31, 31, 31, 0.10);
+  max-height: calc(100vh - 48px);
+  background: var(--ls-bg-raised);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.10);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
   padding: 22px 22px 18px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  color: #1f1f1f;
+  gap: 12px;
+  color: var(--ls-fg);
+  overflow: hidden;
 }
 
 .export-dialog-title {
   margin: 0;
+  flex-shrink: 0;
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
 
+.export-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
 .export-dialog-subtitle {
   margin: -6px 0 0;
   font-size: 13px;
-  color: rgba(31, 31, 31, 0.55);
+  color: rgba(var(--ls-fg-rgb), 0.55);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1403,7 +1449,7 @@ textarea.block-input,
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(31, 31, 31, 0.5);
+  color: rgba(var(--ls-fg-rgb), 0.5);
 }
 
 .export-format-options {
@@ -1424,7 +1470,7 @@ textarea.block-input,
 }
 
 .export-format-option:hover {
-  background: rgba(31, 31, 31, 0.04);
+  background: rgba(var(--ls-fg-rgb), 0.04);
 }
 
 .export-format-option input[type="radio"] {
@@ -1434,7 +1480,18 @@ textarea.block-input,
 
 .export-scope-options {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.export-scope-options-stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.export-scope-options-stack .export-scope-option {
+  border-radius: 10px;
+  justify-content: flex-start;
 }
 
 .export-scope-option {
@@ -1442,7 +1499,7 @@ textarea.block-input,
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border: 1px solid rgba(31, 31, 31, 0.1);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.1);
   border-radius: 999px;
   font-size: 13px;
   cursor: pointer;
@@ -1450,7 +1507,7 @@ textarea.block-input,
 }
 
 .export-scope-option:hover {
-  background: rgba(31, 31, 31, 0.04);
+  background: rgba(var(--ls-fg-rgb), 0.04);
 }
 
 .export-scope-option input[type="radio"] {
@@ -1468,13 +1525,13 @@ textarea.block-input,
 .export-path-input {
   flex: 1 1 0;
   min-width: 0;
-  border: 1px solid rgba(31, 31, 31, 0.18);
-  background: #fafafa;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.18);
+  background: var(--ls-bg-soft);
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
   font-size: 12.5px;
-  color: rgba(31, 31, 31, 0.85);
+  color: rgba(var(--ls-fg-rgb), 0.85);
   outline: none;
   /* Path strings can be long; show end (filename) when truncated. */
   direction: ltr;
@@ -1484,14 +1541,16 @@ textarea.block-input,
 }
 
 .export-path-input::placeholder {
-  color: rgba(31, 31, 31, 0.4);
+  color: rgba(var(--ls-fg-rgb), 0.4);
 }
 
 .export-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  padding-top: 4px;
 }
 
 .export-dialog-secondary,
@@ -1506,25 +1565,26 @@ textarea.block-input,
 }
 
 .export-dialog-secondary {
-  border: 1px solid rgba(31, 31, 31, 0.18);
-  background: #ffffff;
-  color: #1f1f1f;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.18);
+  background: var(--ls-bg-raised);
+  color: var(--ls-fg);
 }
 
 .export-dialog-secondary:hover:not(:disabled) {
-  border-color: rgba(31, 31, 31, 0.4);
-  background: rgba(31, 31, 31, 0.03);
+  border-color: rgba(var(--ls-fg-rgb), 0.4);
+  background: rgba(var(--ls-fg-rgb), 0.03);
 }
 
 .export-dialog-primary {
-  border: 1px solid #1f1f1f;
-  background: #1f1f1f;
-  color: #ffffff;
+  border: 1px solid var(--ls-fg);
+  background: var(--ls-fg);
+  color: var(--ls-bg);
 }
 
 .export-dialog-primary:hover:not(:disabled) {
-  background: #2f2f2f;
-  border-color: #2f2f2f;
+  background: var(--ls-btn-hover);
+  border-color: var(--ls-btn-hover);
+  color: var(--ls-bg);
 }
 
 .export-dialog-secondary:disabled,
@@ -1535,7 +1595,7 @@ textarea.block-input,
 
 .batch-export-dialog {
   width: min(520px, calc(100vw - 48px));
-  max-height: min(82vh, 720px);
+  max-height: calc(100vh - 48px);
 }
 
 .batch-export-toolbar {
@@ -1543,6 +1603,7 @@ textarea.block-input,
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 .batch-export-toolbar-btn {
@@ -1550,25 +1611,29 @@ textarea.block-input,
   font-size: 12px;
 }
 
+.export-dialog-section-grow {
+  min-height: 0;
+}
+
 .batch-export-scene-list {
-  max-height: 240px;
+  max-height: min(220px, 28vh);
   overflow-y: auto;
-  border: 1px solid rgba(31, 31, 31, 0.08);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.08);
   border-radius: 10px;
   padding: 8px 10px;
-  background: rgba(31, 31, 31, 0.02);
+  background: rgba(var(--ls-fg-rgb), 0.02);
 }
 
 .batch-export-script-group + .batch-export-script-group {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(31, 31, 31, 0.06);
+  border-top: 1px solid rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .batch-export-script-title {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(31, 31, 31, 0.55);
+  color: rgba(var(--ls-fg-rgb), 0.55);
   margin-bottom: 6px;
 }
 
@@ -1586,7 +1651,7 @@ textarea.block-input,
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: rgba(31, 31, 31, 0.82);
+  color: rgba(var(--ls-fg-rgb), 0.82);
   cursor: pointer;
 }
 
@@ -1601,7 +1666,7 @@ textarea.block-input,
 }
 
 /* ============================================================
-   Settings dialog — reuses the export-dialog shell
+   Settings dialog  Ereuses the export-dialog shell
    ============================================================ */
 
 .settings-dialog {
@@ -1620,8 +1685,8 @@ textarea.block-input,
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: rgba(31, 31, 31, 0.45);
-  background: rgba(31, 31, 31, 0.06);
+  color: rgba(var(--ls-fg-rgb), 0.45);
+  background: rgba(var(--ls-fg-rgb), 0.06);
   border-radius: 999px;
   padding: 2px 8px;
 }
@@ -1629,13 +1694,13 @@ textarea.block-input,
 .settings-select {
   appearance: none;
   width: 100%;
-  border: 1px solid rgba(31, 31, 31, 0.18);
-  background: #fafafa;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.18);
+  background: var(--ls-bg-soft);
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
   font-size: 13px;
-  color: rgba(31, 31, 31, 0.85);
+  color: rgba(var(--ls-fg-rgb), 0.85);
   outline: none;
 }
 
@@ -1648,27 +1713,27 @@ textarea.block-input,
   margin: 8px 0 0;
   font-size: 12px;
   line-height: 1.45;
-  color: rgba(31, 31, 31, 0.5);
+  color: rgba(var(--ls-fg-rgb), 0.5);
 }
 
 .settings-hint.is-error {
-  color: #a33a3a;
+  color: var(--ls-danger);
 }
 
 .settings-update-button {
   width: 100%;
-  border: 1px solid rgba(31, 31, 31, 0.18);
-  background: #fafafa;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.18);
+  background: var(--ls-bg-soft);
   border-radius: 8px;
   padding: 8px 10px;
   font: inherit;
   font-size: 13px;
-  color: rgba(31, 31, 31, 0.85);
+  color: rgba(var(--ls-fg-rgb), 0.85);
   cursor: pointer;
 }
 
 .settings-update-button:hover:not(:disabled) {
-  background: #f3f3f3;
+  background: rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .settings-update-button:disabled {
@@ -1686,24 +1751,24 @@ textarea.block-input,
   overflow: auto;
   padding: 10px 12px;
   border-radius: 8px;
-  background: rgba(31, 31, 31, 0.04);
+  background: rgba(var(--ls-fg-rgb), 0.04);
   font: inherit;
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
-  color: rgba(31, 31, 31, 0.72);
+  color: rgba(var(--ls-fg-rgb), 0.72);
 }
 
 .update-dialog-progress {
   margin: 0 0 12px;
   font-size: 13px;
-  color: rgba(31, 31, 31, 0.7);
+  color: rgba(var(--ls-fg-rgb), 0.7);
 }
 
 .update-dialog-error {
   margin: 0 0 12px;
   font-size: 12px;
-  color: #a33a3a;
+  color: var(--ls-danger);
 }
 
 .settings-footer {
@@ -1713,7 +1778,7 @@ textarea.block-input,
   gap: 12px;
   margin-top: 6px;
   padding-top: 14px;
-  border-top: 1px solid rgba(31, 31, 31, 0.08);
+  border-top: 1px solid rgba(var(--ls-fg-rgb), 0.08);
 }
 
 .settings-about {
@@ -1726,13 +1791,13 @@ textarea.block-input,
 .settings-about-name {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(31, 31, 31, 0.7);
+  color: rgba(var(--ls-fg-rgb), 0.7);
   letter-spacing: 0.01em;
 }
 
 .settings-about-version {
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.45);
+  color: rgba(var(--ls-fg-rgb), 0.45);
 }
 
 /* ============================================================
@@ -1742,7 +1807,7 @@ textarea.block-input,
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 20, 20, 0.32);
+  background: var(--ls-overlay);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   display: grid;
@@ -1753,15 +1818,15 @@ textarea.block-input,
 
 .modal-dialog {
   width: min(380px, calc(100vw - 64px));
-  background: #ffffff;
-  border: 1px solid rgba(31, 31, 31, 0.1);
+  background: var(--ls-bg-raised);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.1);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
   padding: 22px 22px 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   animation: modal-dialog-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -1776,7 +1841,7 @@ textarea.block-input,
   margin: 0;
   font-size: 13.5px;
   line-height: 1.5;
-  color: rgba(31, 31, 31, 0.62);
+  color: rgba(var(--ls-fg-rgb), 0.62);
 }
 
 .modal-dialog-actions {
@@ -1798,25 +1863,26 @@ textarea.block-input,
 }
 
 .modal-dialog-secondary {
-  border: 1px solid rgba(31, 31, 31, 0.18);
-  background: #ffffff;
-  color: #1f1f1f;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.18);
+  background: var(--ls-bg-raised);
+  color: var(--ls-fg);
 }
 
 .modal-dialog-secondary:hover {
-  border-color: rgba(31, 31, 31, 0.4);
-  background: rgba(31, 31, 31, 0.03);
+  border-color: rgba(var(--ls-fg-rgb), 0.4);
+  background: rgba(var(--ls-fg-rgb), 0.03);
 }
 
 .modal-dialog-primary {
-  border: 1px solid #1f1f1f;
-  background: #1f1f1f;
-  color: #ffffff;
+  border: 1px solid var(--ls-fg);
+  background: var(--ls-fg);
+  color: var(--ls-bg);
 }
 
 .modal-dialog-primary:hover {
-  background: #2f2f2f;
-  border-color: #2f2f2f;
+  background: var(--ls-btn-hover);
+  border-color: var(--ls-btn-hover);
+  color: var(--ls-bg);
 }
 
 .modal-dialog-primary.is-danger {
@@ -1863,7 +1929,7 @@ textarea.block-input,
 }
 
 /* ============================================================
-   Splash screen — first thing the user sees on launch
+   Splash screen  Efirst thing the user sees on launch
    ============================================================ */
 
 .splash-screen {
@@ -1877,7 +1943,7 @@ textarea.block-input,
   background:
     radial-gradient(ellipse at top, rgba(255, 246, 222, 0.55), transparent 55%),
     radial-gradient(ellipse at bottom, rgba(222, 233, 255, 0.45), transparent 60%),
-    #fbfbfa;
+    var(--ls-bg);
   user-select: none;
 }
 
@@ -1887,18 +1953,18 @@ textarea.block-input,
   font-size: 132px;
   font-weight: 600;
   line-height: 1;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   letter-spacing: 0.01em;
   text-shadow: 0 2px 30px rgba(0, 0, 0, 0.06);
 }
 
 .splash-cta {
   appearance: none;
-  border: 1px solid rgba(31, 31, 31, 0.25);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.25);
   background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  color: #1f1f1f;
+  color: var(--ls-fg);
   font: inherit;
   font-size: 14px;
   letter-spacing: 0.06em;
@@ -1914,9 +1980,9 @@ textarea.block-input,
 
 .splash-cta:hover:not(:disabled),
 .splash-cta:focus-visible {
-  background: #1f1f1f;
-  color: #ffffff;
-  border-color: #1f1f1f;
+  background: var(--ls-fg);
+  color: var(--ls-bg);
+  border-color: var(--ls-fg);
   transform: translateY(-1px);
   box-shadow: 0 14px 28px rgba(0, 0, 0, 0.16);
   outline: none;
@@ -1934,7 +2000,7 @@ textarea.block-input,
 }
 
 /* ============================================================
-   Project Hub — top-right repo controls, top-left project grid
+   Project Hub  Etop-right repo controls, top-left project grid
    ============================================================ */
 
 .hub-screen {
@@ -1945,7 +2011,7 @@ textarea.block-input,
   display: flex;
   flex-direction: column;
   gap: 20px;
-  background: #fbfbfa;
+  background: var(--ls-bg);
   overflow: hidden;
 }
 
@@ -1962,8 +2028,8 @@ textarea.block-input,
   flex: 0 1 auto;
   min-width: 0;
   font-size: 12px;
-  color: rgba(31, 31, 31, 0.55);
-  background: rgba(31, 31, 31, 0.05);
+  color: rgba(var(--ls-fg-rgb), 0.55);
+  background: rgba(var(--ls-fg-rgb), 0.05);
   border-radius: 8px;
   padding: 6px 10px;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
@@ -1977,21 +2043,21 @@ textarea.block-input,
 
 .hub-topbar-button {
   appearance: none;
-  border: 1px solid rgba(31, 31, 31, 0.18);
-  background: #ffffff;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.18);
+  background: var(--ls-bg-raised);
   border-radius: 8px;
   padding: 6px 12px;
   font: inherit;
   font-size: 12.5px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   cursor: pointer;
   white-space: nowrap;
   transition: background 140ms ease, border-color 140ms ease;
 }
 
 .hub-topbar-button:hover {
-  background: rgba(31, 31, 31, 0.04);
-  border-color: rgba(31, 31, 31, 0.35);
+  background: rgba(var(--ls-fg-rgb), 0.04);
+  border-color: rgba(var(--ls-fg-rgb), 0.35);
 }
 
 .hub-content {
@@ -2022,12 +2088,12 @@ textarea.block-input,
   min-height: 96px;
   text-align: left;
   appearance: none;
-  border: 1px solid rgba(31, 31, 31, 0.12);
-  background: #ffffff;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.12);
+  background: var(--ls-bg-raised);
   border-radius: 14px;
   padding: 14px 16px;
   font: inherit;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   cursor: pointer;
   transition:
     background 160ms ease,
@@ -2036,8 +2102,8 @@ textarea.block-input,
 }
 
 .hub-tile:hover {
-  border-color: rgba(31, 31, 31, 0.32);
-  background: #ffffff;
+  border-color: rgba(var(--ls-fg-rgb), 0.32);
+  background: var(--ls-bg-raised);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.07);
 }
 
@@ -2051,7 +2117,7 @@ textarea.block-input,
 
 .hub-tile-path {
   font-size: 11px;
-  color: rgba(31, 31, 31, 0.42);
+  color: rgba(var(--ls-fg-rgb), 0.42);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   white-space: nowrap;
   overflow: hidden;
@@ -2067,9 +2133,9 @@ textarea.block-input,
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 1px solid rgba(31, 31, 31, 0.15);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.15);
   background: rgba(255, 255, 255, 0.95);
-  color: rgba(31, 31, 31, 0.55);
+  color: rgba(var(--ls-fg-rgb), 0.55);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -2100,15 +2166,15 @@ textarea.block-input,
   justify-content: center;
   gap: 4px;
   border-style: dashed;
-  border-color: rgba(31, 31, 31, 0.22);
+  border-color: rgba(var(--ls-fg-rgb), 0.22);
   background: transparent;
-  color: rgba(31, 31, 31, 0.55);
+  color: rgba(var(--ls-fg-rgb), 0.55);
 }
 
 .hub-tile--new:hover {
-  background: rgba(31, 31, 31, 0.03);
-  border-color: rgba(31, 31, 31, 0.45);
-  color: #1f1f1f;
+  background: rgba(var(--ls-fg-rgb), 0.03);
+  border-color: rgba(var(--ls-fg-rgb), 0.45);
+  color: var(--ls-fg);
 }
 
 .hub-tile-new-plus {
@@ -2126,8 +2192,8 @@ textarea.block-input,
 .hub-tile--new.is-editing {
   padding: 14px;
   border-style: solid;
-  border-color: rgba(31, 31, 31, 0.35);
-  background: #ffffff;
+  border-color: rgba(var(--ls-fg-rgb), 0.35);
+  background: var(--ls-bg-raised);
   cursor: text;
 }
 
@@ -2139,7 +2205,7 @@ textarea.block-input,
   font: inherit;
   font-size: 14px;
   font-weight: 600;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   text-align: center;
   outline: none;
   padding: 8px 4px;
@@ -2147,7 +2213,7 @@ textarea.block-input,
 
 .hub-empty-hint {
   margin: 24px 0 0;
-  color: rgba(31, 31, 31, 0.45);
+  color: rgba(var(--ls-fg-rgb), 0.45);
   font-size: 13px;
 }
 
@@ -2159,7 +2225,7 @@ textarea.block-input,
 }
 
 /* ============================================================
-   Scene Orbit Navigator — always-visible left rail (timeline)
+   Scene Orbit Navigator  Ealways-visible left rail (timeline)
    ============================================================ */
 
 .scene-orbit-navigator {
@@ -2200,7 +2266,7 @@ textarea.block-input,
   flex-direction: column;
   gap: 4px;
   padding: 0 2px 10px;
-  border-bottom: 1px solid rgba(31, 31, 31, 0.06);
+  border-bottom: 1px solid rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .scene-orbit-project-title {
@@ -2212,7 +2278,7 @@ textarea.block-input,
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #1f1f1f;
+  color: var(--ls-fg);
   text-align: left;
   cursor: pointer;
   border-radius: 6px;
@@ -2223,7 +2289,7 @@ textarea.block-input,
 }
 
 .scene-orbit-project-title:hover {
-  background: rgba(31, 31, 31, 0.05);
+  background: rgba(var(--ls-fg-rgb), 0.05);
 }
 
 .scene-orbit-script-title {
@@ -2232,7 +2298,7 @@ textarea.block-input,
   font-weight: 500;
   letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: rgba(31, 31, 31, 0.40);
+  color: rgba(var(--ls-fg-rgb), 0.40);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2257,7 +2323,7 @@ textarea.block-input,
   text-align: left;
   padding: 4px 10px;
   border-radius: 6px;
-  color: rgba(31, 31, 31, 0.85);
+  color: rgba(var(--ls-fg-rgb), 0.85);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -2282,7 +2348,7 @@ textarea.block-input,
   font-weight: 500;
   letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: rgba(31, 31, 31, 0.35);
+  color: rgba(var(--ls-fg-rgb), 0.35);
   padding: 6px 10px 4px;
   cursor: default;
 }
@@ -2311,22 +2377,22 @@ textarea.block-input,
 }
 
 .scene-orbit-item--scene:hover {
-  background: rgba(31, 31, 31, 0.04);
-  color: #1f1f1f;
+  background: rgba(var(--ls-fg-rgb), 0.04);
+  color: var(--ls-fg);
 }
 
 /* Preview center: subtle focus that does NOT compete with the real selection */
 .scene-orbit-item--preview-center.scene-orbit-item--scene {
-  color: #2a2a2a;
+  color: var(--ls-fg);
 }
 
 /* Real selected scene: strong visual anchor */
 .scene-orbit-item--selected.scene-orbit-item--scene {
-  color: #111;
+  color: var(--ls-fg);
   font-weight: 700;
   font-size: 15px;
   transform: scale(1.04);
-  background: rgba(31, 31, 31, 0.04);
+  background: rgba(var(--ls-fg-rgb), 0.04);
   opacity: 1;
 }
 
@@ -2336,7 +2402,7 @@ textarea.block-input,
   width: 4px;
   height: 4px;
   border-radius: 999px;
-  background: #111;
+  background: var(--ls-fg);
   margin-right: 8px;
   vertical-align: middle;
 }
@@ -2345,28 +2411,28 @@ textarea.block-input,
   display: flex;
   gap: 6px;
   padding-top: 10px;
-  border-top: 1px solid rgba(31, 31, 31, 0.06);
+  border-top: 1px solid rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .scene-orbit-action {
   flex: 1;
   appearance: none;
-  border: 1px dashed rgba(31, 31, 31, 0.18);
+  border: 1px dashed rgba(var(--ls-fg-rgb), 0.18);
   background: transparent;
   border-radius: 8px;
   padding: 6px 8px;
   font: inherit;
   font-size: 12px;
   letter-spacing: 0.02em;
-  color: rgba(31, 31, 31, 0.6);
+  color: rgba(var(--ls-fg-rgb), 0.6);
   cursor: pointer;
   transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
 }
 
 .scene-orbit-action:hover {
-  color: #1f1f1f;
-  border-color: rgba(31, 31, 31, 0.4);
-  background: rgba(31, 31, 31, 0.03);
+  color: var(--ls-fg);
+  border-color: rgba(var(--ls-fg-rgb), 0.4);
+  background: rgba(var(--ls-fg-rgb), 0.03);
 }
 
 /* ---- Header script row: title + more button + inline edit ---- */
@@ -2394,7 +2460,7 @@ textarea.block-input,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: rgba(31, 31, 31, 0.45);
+  color: rgba(var(--ls-fg-rgb), 0.45);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
@@ -2404,8 +2470,8 @@ textarea.block-input,
 
 .scene-orbit-script-more:hover {
   opacity: 1;
-  color: #1f1f1f;
-  background: rgba(31, 31, 31, 0.06);
+  color: var(--ls-fg);
+  background: rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .scene-orbit-script-title-input {
@@ -2418,16 +2484,16 @@ textarea.block-input,
   font-weight: 500;
   letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: rgba(31, 31, 31, 0.75);
+  color: rgba(var(--ls-fg-rgb), 0.75);
   padding: 2px 6px;
-  border: 1px solid rgba(31, 31, 31, 0.2);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.2);
   background: rgba(255, 255, 255, 0.95);
   border-radius: 4px;
   outline: none;
 }
 
 .scene-orbit-script-title-input:focus {
-  border-color: rgba(31, 31, 31, 0.45);
+  border-color: rgba(var(--ls-fg-rgb), 0.45);
   box-shadow: 0 0 0 2px rgba(80, 90, 120, 0.16);
 }
 
@@ -2450,7 +2516,7 @@ textarea.block-input,
 .scene-orbit-row--script {
   margin-top: 6px;
   padding-top: 4px;
-  border-top: 1px dashed rgba(31, 31, 31, 0.10);
+  border-top: 1px dashed rgba(var(--ls-fg-rgb), 0.10);
 }
 
 .scene-orbit-item-more {
@@ -2468,7 +2534,7 @@ textarea.block-input,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: rgba(31, 31, 31, 0.5);
+  color: rgba(var(--ls-fg-rgb), 0.5);
   cursor: pointer;
   font-size: 13px;
   line-height: 1;
@@ -2485,11 +2551,11 @@ textarea.block-input,
 
 .scene-orbit-item-more:hover {
   opacity: 1;
-  color: #1f1f1f;
-  background: rgba(31, 31, 31, 0.08);
+  color: var(--ls-fg);
+  background: rgba(var(--ls-fg-rgb), 0.08);
 }
 
-/* Inline edit input — visually replaces the item it stands in for. */
+/* Inline edit input  Evisually replaces the item it stands in for. */
 .scene-orbit-item-input {
   flex: 1 1 0;
   min-width: 0;
@@ -2498,9 +2564,9 @@ textarea.block-input,
   font: inherit;
   padding: 4px 8px;
   border-radius: 6px;
-  border: 1px solid rgba(31, 31, 31, 0.2);
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.2);
   background: rgba(255, 255, 255, 0.95);
-  color: #1f1f1f;
+  color: var(--ls-fg);
   outline: none;
 }
 
@@ -2513,7 +2579,7 @@ textarea.block-input,
   font-size: 10px;
   letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: rgba(31, 31, 31, 0.7);
+  color: rgba(var(--ls-fg-rgb), 0.7);
 }
 
 /* Guard: never apply selected-scene orbit chrome to rename inputs. */
@@ -2532,7 +2598,7 @@ textarea.block-input,
 }
 
 .scene-orbit-item-input:focus {
-  border-color: rgba(31, 31, 31, 0.45);
+  border-color: rgba(var(--ls-fg-rgb), 0.45);
   box-shadow: 0 0 0 2px rgba(80, 90, 120, 0.16);
 }
 
@@ -2550,7 +2616,7 @@ textarea.block-input,
   min-width: 180px;
   border: 1px solid #d4d4d4;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--ls-bg-raised);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
   padding: 4px;
   z-index: 55;
@@ -2575,11 +2641,11 @@ textarea.block-input,
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  color: #1f1f1f;
+  color: var(--ls-fg);
 }
 
 .scene-orbit-context-menu button:hover {
-  background: rgba(31, 31, 31, 0.06);
+  background: rgba(var(--ls-fg-rgb), 0.06);
 }
 
 .scene-orbit-context-menu button.is-danger {
@@ -2588,4 +2654,37 @@ textarea.block-input,
 
 .scene-orbit-context-menu button.is-danger:hover {
   background: #fde8e8;
+}
+
+/* Residual light-only surfaces remapped for dark theme */
+html[data-theme="dark"] .hub-tile-delete:hover,
+html[data-theme="dark"] .scene-orbit-context-menu button.is-danger:hover {
+  background: rgba(224, 128, 128, 0.16);
+}
+
+html[data-theme="dark"] .scene-orbit-context-menu button.is-danger,
+html[data-theme="dark"] .error,
+html[data-theme="dark"] .hub-tile-delete {
+  color: var(--ls-danger);
+}
+
+html[data-theme="dark"] .conflict-banner {
+  background: rgba(224, 180, 80, 0.14);
+  border-color: rgba(224, 180, 80, 0.28);
+}
+
+html[data-theme="dark"] .conflict-banner-body,
+html[data-theme="dark"] .conflict-banner-detail {
+  color: #f0d9a0;
+}
+
+html[data-theme="dark"] .conflict-banner-dismiss {
+  border-color: rgba(224, 180, 80, 0.4);
+  color: #f0d9a0;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  color-scheme: dark;
 }

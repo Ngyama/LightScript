@@ -3,6 +3,12 @@ import type { Update } from "@tauri-apps/plugin-updater";
 import type { WritingMode } from "../../domain/model";
 import { useEditorStore } from "../../state/editorStore";
 import {
+  applyTheme,
+  getStoredTheme,
+  setStoredTheme,
+  type AppTheme,
+} from "../../theme/appTheme";
+import {
   checkForAppUpdate,
   formatUpdateError,
   getAppVersion,
@@ -11,7 +17,11 @@ import {
 const APP_NAME = "LightScript";
 
 const FONT_OPTIONS = ["System Default", "Noto Sans JP", "Dancing Script"];
-const THEME_OPTIONS = ["Light", "Sepia", "Dark"];
+
+const THEME_OPTIONS: Array<{ value: AppTheme; label: string }> = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
 const WRITING_MODE_OPTIONS: Array<{ value: WritingMode; label: string; hint: string }> = [
   {
@@ -36,6 +46,7 @@ type UpdateCheckState = "idle" | "checking" | "upToDate" | "error";
 export function SettingsDialog({ onClose, onUpdateAvailable }: SettingsDialogProps) {
   const writingMode = useEditorStore((state) => state.project.settings.writingMode);
   const setWritingMode = useEditorStore((state) => state.setWritingMode);
+  const [theme, setTheme] = useState<AppTheme>(() => getStoredTheme());
   const [appVersion, setAppVersion] = useState("…");
   const [updateState, setUpdateState] = useState<UpdateCheckState>("idle");
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
@@ -60,6 +71,12 @@ export function SettingsDialog({ onClose, onUpdateAvailable }: SettingsDialogPro
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const handleThemeChange = (next: AppTheme) => {
+    setTheme(next);
+    setStoredTheme(next);
+    applyTheme(next);
+  };
 
   const handleCheckUpdate = async () => {
     setUpdateState("checking");
@@ -131,15 +148,19 @@ export function SettingsDialog({ onClose, onUpdateAvailable }: SettingsDialogPro
         <div className="export-dialog-section">
           <div className="settings-row-head">
             <span className="export-dialog-label">Theme</span>
-            <span className="settings-soon">Coming soon</span>
           </div>
-          <select className="settings-select" defaultValue="Light" disabled>
-            {THEME_OPTIONS.map((theme) => (
-              <option key={theme} value={theme}>
-                {theme}
+          <select
+            className="settings-select"
+            value={theme}
+            onChange={(event) => handleThemeChange(event.target.value as AppTheme)}
+          >
+            {THEME_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
+          <p className="settings-hint">深色主题使用偏暖的灰调，不是纯黑。</p>
         </div>
 
         <div className="export-dialog-section">
