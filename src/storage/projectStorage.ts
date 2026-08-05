@@ -142,12 +142,34 @@ export async function loadProjectFromPath(projectPath: string): Promise<Project>
 export async function saveProject(
   projectPath: string,
   project: Project,
+  expectedHash: string | null = null,
 ): Promise<ProjectMeta | null> {
   const payload = JSON.stringify(project, null, 2);
   if (isTauriRuntime()) {
-    return invoke<ProjectMeta>("save_project_to_path", { projectPath, projectJson: payload });
+    return invoke<ProjectMeta>("save_project_to_path", {
+      projectPath,
+      projectJson: payload,
+      expectedHash,
+    });
   }
   localStorage.setItem(localProjectKey(projectPath), payload);
+  return null;
+}
+
+/** Write a pre-serialized project payload with optional compare-and-swap hash. */
+export async function saveProjectPayload(
+  projectPath: string,
+  projectJson: string,
+  expectedHash: string | null = null,
+): Promise<ProjectMeta | null> {
+  if (isTauriRuntime()) {
+    return invoke<ProjectMeta>("save_project_to_path", {
+      projectPath,
+      projectJson,
+      expectedHash,
+    });
+  }
+  localStorage.setItem(localProjectKey(projectPath), projectJson);
   return null;
 }
 

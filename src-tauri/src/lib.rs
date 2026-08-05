@@ -301,14 +301,28 @@ fn snapshot_project_before_save(project_dir: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_project_to_path(project_path: String, project_json: String) -> Result<ProjectMeta, String> {
+fn save_project_to_path(
+  project_path: String,
+  project_json: String,
+  expected_hash: Option<String>,
+) -> Result<ProjectMeta, String> {
   serde_json::from_str::<Value>(&project_json).map_err(|error| format!("invalid project json: {error}"))?;
   let project_dir = PathBuf::from(project_path);
   if !project_dir.exists() || !project_dir.is_dir() {
     return Err("project path does not exist or is not a directory".to_string());
   }
-  snapshot_project_before_save(&project_dir)?;
   let data_path = project_json_path(&project_dir);
+  // Compare-and-swap: refuse to overwrite when another process (e.g. Google Drive)
+  // changed project.json since the caller last observed it.
+  if let Some(expected) = expected_hash.as_deref() {
+    if data_path.exists() {
+      let current = compute_project_meta(&data_path)?;
+      if current.hash != expected {
+        return Err("external_update".to_string());
+      }
+    }
+  }
+  snapshot_project_before_save(&project_dir)?;
   let temp_path = project_dir.join("project.json.tmp");
   fs::write(&temp_path, project_json).map_err(|error| format!("failed to write temp project: {error}"))?;
   fs::rename(&temp_path, &data_path).map_err(|error| format!("failed to finalize project write: {error}"))?;

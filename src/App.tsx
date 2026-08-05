@@ -5,7 +5,11 @@ import {
   createDefaultProject,
   findSceneInProject,
 } from "./domain/model";
-import { withLastOpenedSettings } from "./domain/selection";
+import {
+  isExternalUpdateSaveError,
+  planProjectSave,
+  projectSavePayload,
+} from "./domain/projectSave";
 import { useEditorStore } from "./state/editorStore";
 import {
   createProject,
@@ -16,7 +20,7 @@ import {
   listProjects,
   loadProjectFromPath,
   pickDirectory,
-  saveProject,
+  saveProjectPayload,
   setRepoPath,
   type ProjectMeta,
   type ProjectSummary,
@@ -91,9 +95,70 @@ export default function App() {
   // writing so our own writes never look like an external change; the poller
   // compares fresh reads against it to detect outside edits.
   const baselineMetaRef = useRef<ProjectMeta | null>(null);
+  // Serialized payload from the last successful open/save. Used so an untouched
+  // editor session never rewrites project.json (which would poison Drive sync).
+  const savedPayloadRef = useRef<string | null>(null);
   // True while an auto-save write is in flight, so the poller doesn't mistake
   // our own half-written file for an external change.
   const isSavingRef = useRef(false);
+
+  const captureSavedSnapshot = useCallback(() => {
+    const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
+    savedPayloadRef.current = projectSavePayload(
+      currentProject,
+      currentSelection.scriptId,
+      currentSelection.sceneId,
+    );
+  }, []);
+
+  const persistProjectIfNeeded = useCallback(
+    async (options?: { silent?: boolean }): Promise<"saved" | "skipped" | "external" | "error"> => {
+      if (!activeProjectPath || externalUpdate) {
+        return "skipped";
+      }
+      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
+      const diskMeta = await getProjectMeta(activeProjectPath);
+      const plan = planProjectSave({
+        savedPayload: savedPayloadRef.current,
+        project: currentProject,
+        scriptId: currentSelection.scriptId,
+        sceneId: currentSelection.sceneId,
+        baselineHash: baselineMetaRef.current?.hash ?? null,
+        diskHash: diskMeta?.hash ?? null,
+      });
+
+      if (plan.action === "skip-clean") {
+        return "skipped";
+      }
+      if (plan.action === "skip-external") {
+        setExternalUpdate(true);
+        return "external";
+      }
+
+      try {
+        const meta = await saveProjectPayload(
+          activeProjectPath,
+          plan.payload,
+          plan.expectedHash,
+        );
+        if (meta) {
+          baselineMetaRef.current = meta;
+        }
+        savedPayloadRef.current = plan.payload;
+        if (!options?.silent) {
+          setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`);
+        }
+        return "saved";
+      } catch (error) {
+        if (isExternalUpdateSaveError(error)) {
+          setExternalUpdate(true);
+          return "external";
+        }
+        throw error;
+      }
+    },
+    [activeProjectPath, externalUpdate],
+  );
 
   const applyConflictCopies = useCallback((copies: string[]) => {
     const key = copies.join("\u0000");
@@ -185,21 +250,7 @@ export default function App() {
     }
     const timeout = window.setTimeout(() => {
       isSavingRef.current = true;
-      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
-      void saveProject(
-        activeProjectPath,
-        withLastOpenedSettings(
-          currentProject,
-          currentSelection.scriptId,
-          currentSelection.sceneId,
-        ),
-      )
-        .then((meta) => {
-          if (meta) {
-            baselineMetaRef.current = meta;
-          }
-          setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`);
-        })
+      void persistProjectIfNeeded()
         .catch((error) => {
           setErrorMessage(error instanceof Error ? error.message : "Auto-save failed.");
         })
@@ -208,7 +259,7 @@ export default function App() {
         });
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [activeProjectPath, externalUpdate, isHydrated, project, selection, stage]);
+  }, [activeProjectPath, externalUpdate, isHydrated, persistProjectIfNeeded, project, selection, stage]);
 
   useEffect(() => {
     if (!isHydrated || stage !== "editor" || !activeProjectPath || externalUpdate) {
@@ -219,16 +270,11 @@ export default function App() {
       if (isSavingRef.current) {
         return;
       }
-      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
       isSavingRef.current = true;
-      void saveProject(
-        activeProjectPath,
-        withLastOpenedSettings(
-          currentProject,
-          currentSelection.scriptId,
-          currentSelection.sceneId,
-        ),
-      )
+      void persistProjectIfNeeded({ silent: true })
+        .catch(() => {
+          // Flush failures are non-fatal; the next autosave or open will retry.
+        })
         .finally(() => {
           isSavingRef.current = false;
         });
@@ -246,7 +292,7 @@ export default function App() {
       window.removeEventListener("beforeunload", flushSave);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [activeProjectPath, externalUpdate, isHydrated, stage]);
+  }, [activeProjectPath, externalUpdate, isHydrated, persistProjectIfNeeded, stage]);
 
   // Poll the on-disk fingerprint while editing so a newer copy synced in by
   // Google Drive (from another machine) surfaces a "reload?" prompt instead of
@@ -338,6 +384,7 @@ export default function App() {
       assertProjectInvariant(loadedProject);
       hydrateProject(loadedProject);
       baselineMetaRef.current = await getProjectMeta(summary.path);
+      captureSavedSnapshot();
       setExternalUpdate(false);
       applyConflictCopies(await listConflictCopies(summary.path));
       setActiveProjectPath(summary.path);
@@ -359,6 +406,7 @@ export default function App() {
       assertProjectInvariant(loadedProject);
       hydrateProject(loadedProject);
       baselineMetaRef.current = await getProjectMeta(activeProjectPath);
+      captureSavedSnapshot();
       setExternalUpdate(false);
       setSaveInfo(`Reloaded at ${new Date().toLocaleTimeString()}`);
       setErrorMessage(null);
@@ -462,15 +510,9 @@ export default function App() {
 
   const handleHub = () => {
     if (activeProjectPath && !externalUpdate) {
-      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
-      void saveProject(
-        activeProjectPath,
-        withLastOpenedSettings(
-          currentProject,
-          currentSelection.scriptId,
-          currentSelection.sceneId,
-        ),
-      );
+      void persistProjectIfNeeded({ silent: true }).catch((error) => {
+        setErrorMessage(error instanceof Error ? error.message : "Failed to save before leaving editor.");
+      });
     }
     setStage("projectHub");
   };
