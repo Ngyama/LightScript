@@ -168,6 +168,7 @@ export async function writeProjectFile(
   relativePath: string,
   contents: string,
   expectedHash: string | null = null,
+  takeSnapshot: boolean = false,
 ): Promise<ProjectMeta | null> {
   if (isTauriRuntime()) {
     return invoke<ProjectMeta>("write_project_file", {
@@ -175,6 +176,7 @@ export async function writeProjectFile(
       relativePath,
       contents,
       expectedHash,
+      takeSnapshot,
     });
   }
   const root = JSON.parse(localStorage.getItem(localProjectKey(projectPath)) ?? "{}") as Record<
@@ -187,6 +189,7 @@ export async function writeProjectFile(
   void relativePath;
   void contents;
   void expectedHash;
+  void takeSnapshot;
   return null;
 }
 
@@ -386,6 +389,55 @@ export async function getProjectMeta(projectPath: string): Promise<ProjectMeta |
 export async function listConflictCopies(projectPath: string): Promise<string[]> {
   if (isTauriRuntime()) {
     return invoke<string[]>("list_conflict_copies", { projectPath });
+  }
+  return [];
+}
+
+export type ProjectBackupEntry = {
+  fileName: string;
+  originalRelativePath: string;
+  mtimeMs: number;
+  size: number;
+};
+
+export async function listProjectBackups(projectPath: string): Promise<ProjectBackupEntry[]> {
+  if (isTauriRuntime()) {
+    return invoke<ProjectBackupEntry[]>("list_project_backups", { projectPath });
+  }
+  return [];
+}
+
+export async function readProjectBackup(
+  projectPath: string,
+  fileName: string,
+): Promise<string> {
+  if (isTauriRuntime()) {
+    return invoke<string>("read_project_backup", { projectPath, fileName });
+  }
+  throw new Error("备份功能仅在桌面端可用。");
+}
+
+export async function restoreProjectBackup(
+  projectPath: string,
+  fileName: string,
+  asCopy: boolean,
+): Promise<{ restoredRelativePath: string }> {
+  if (isTauriRuntime()) {
+    return invoke<{ restoredRelativePath: string }>("restore_project_backup", {
+      projectPath,
+      fileName,
+      asCopy,
+    });
+  }
+  throw new Error("备份功能仅在桌面端可用。");
+}
+
+export async function saveSyncedCopies(
+  projectPath: string,
+  relativePaths: string[],
+): Promise<string[]> {
+  if (isTauriRuntime()) {
+    return invoke<string[]>("save_synced_copies", { projectPath, relativePaths });
   }
   return [];
 }

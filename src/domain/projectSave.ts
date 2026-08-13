@@ -99,6 +99,13 @@ export function planProjectFilesSave(args: {
     return { allClean: false, hasExternal: true, writes: [], deletes: [] };
   }
 
+  // Scenes before meta so a crash mid-save never leaves catalog pointing at missing bodies.
+  writes.sort((a, b) => {
+    const aMeta = a.relativePath === "project.json" ? 1 : 0;
+    const bMeta = b.relativePath === "project.json" ? 1 : 0;
+    return aMeta - bMeta;
+  });
+
   for (const relativePath of removedProjectFiles(previousSnapshot, nextSnapshot)) {
     allClean = false;
     const baselineHash = args.baselineHashes[relativePath] ?? null;

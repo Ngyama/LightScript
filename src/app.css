@@ -1851,6 +1851,225 @@ textarea.block-input,
   margin-top: 8px;
 }
 
+.modal-dialog-actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.modal-dialog-actions--stack .modal-dialog-primary,
+.modal-dialog-actions--stack .modal-dialog-secondary {
+  width: 100%;
+  justify-content: center;
+}
+
+.modal-dialog-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(var(--ls-fg-rgb), 0.55);
+}
+
+.recovery-dialog {
+  width: min(920px, 96vw);
+  max-width: 920px;
+}
+
+.recovery-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.05fr) minmax(150px, 0.85fr) minmax(240px, 1.25fr);
+  gap: 12px;
+  min-height: 280px;
+}
+
+.recovery-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+  max-height: 320px;
+  padding: 4px;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.12);
+  border-radius: 8px;
+}
+
+.recovery-tree-branch {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recovery-tree-branch--orphan {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(var(--ls-fg-rgb), 0.14);
+}
+
+.recovery-tree-script,
+.recovery-tree-item {
+  appearance: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font: inherit;
+  color: var(--ls-fg);
+  cursor: pointer;
+}
+
+.recovery-tree-script:hover,
+.recovery-tree-item:hover,
+.recovery-tree-item.is-selected {
+  background: rgba(var(--ls-fg-rgb), 0.06);
+}
+
+.recovery-tree-item.is-selected {
+  background: rgba(var(--ls-fg-rgb), 0.09);
+}
+
+.recovery-tree-item.is-empty .recovery-tree-label {
+  opacity: 0.78;
+}
+
+.recovery-tree-item.is-scene {
+  padding-left: 22px;
+  font-size: 13px;
+}
+
+.recovery-tree-scenes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.recovery-tree-caret {
+  width: 12px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.recovery-tree-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recovery-tree-script .recovery-tree-label {
+  font-weight: 600;
+}
+
+.recovery-tree-count {
+  font-size: 11px;
+  opacity: 0.7;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.recovery-tree-count.is-zero {
+  opacity: 0.35;
+}
+
+.recovery-list-pane {
+  min-height: 0;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.12);
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 320px;
+}
+
+.recovery-empty {
+  margin: 0;
+  padding: 14px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.72;
+}
+
+.recovery-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.recovery-list-item {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ls-fg);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(var(--ls-fg-rgb), 0.08);
+}
+
+.recovery-list-item:hover,
+.recovery-list-item.is-selected {
+  background: rgba(var(--ls-fg-rgb), 0.06);
+}
+
+.recovery-list-time {
+  display: block;
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.recovery-list-name {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.recovery-preview-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.recovery-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.recovery-preview-delta {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.recovery-preview {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  max-height: 280px;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.12);
+  border-radius: 8px;
+  background: var(--ls-bg-raised);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .modal-dialog-secondary,
 .modal-dialog-primary {
   appearance: none;

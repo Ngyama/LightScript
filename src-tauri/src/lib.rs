@@ -166,7 +166,9 @@ fn project_json_path(project_path: &Path) -> PathBuf {
   project_path.join("project.json")
 }
 
-const MAX_PROJECT_SNAPSHOTS: usize = 10;
+/// Per Scene (or project.json) ring size — not a global pool across the work.
+const MAX_SNAPSHOTS_PER_SCENE: usize = 10;
+const MAX_SNAPSHOTS_PROJECT_META: usize = 8;
 const SNAPSHOT_DIR: &str = ".lightscript/backups";
 
 fn snapshot_timestamp() -> String {
@@ -177,8 +179,55 @@ fn snapshot_timestamp() -> String {
   format!("{}-{:03}", duration.as_secs(), duration.subsec_millis())
 }
 
-fn is_snapshot_file_name(name: &str) -> bool {
+fn is_legacy_monolithic_snapshot_name(name: &str) -> bool {
   name.starts_with("project-") && name.ends_with(".json")
+}
+
+fn snapshot_cap_for_relative(relative_path: &str) -> usize {
+  let normalized = relative_path.replace('\\', "/");
+  if normalized.eq_ignore_ascii_case("project.json") {
+    MAX_SNAPSHOTS_PROJECT_META
+  } else {
+    MAX_SNAPSHOTS_PER_SCENE
+  }
+}
+
+/// Live `scripts/a/scenes/b.json` → `.lightscript/backups/scripts/a/scenes/b/`
+/// Live `project.json` → `.lightscript/backups/project.json/`
+fn snapshot_ring_dir(project_dir: &Path, relative_path: &str) -> PathBuf {
+  let normalized = relative_path.replace('\\', "/");
+  if normalized.eq_ignore_ascii_case("project.json") {
+    return project_dir.join(SNAPSHOT_DIR).join("project.json");
+  }
+  let stem = normalized
+    .strip_suffix(".json")
+    .unwrap_or(normalized.as_str());
+  project_dir.join(SNAPSHOT_DIR).join(stem)
+}
+
+fn backup_rel_within_dir(backup_dir: &Path, file_path: &Path) -> Option<String> {
+  let rel = file_path.strip_prefix(backup_dir).ok()?;
+  let text = rel.to_string_lossy().replace('\\', "/");
+  if text.is_empty() || text.contains("..") {
+    return None;
+  }
+  Some(text)
+}
+
+fn original_path_from_ring_backup(backup_rel: &str) -> Option<String> {
+  // `project.json/123-456.bak` or `scripts/sid/scenes/scid/123-456.bak`
+  let normalized = backup_rel.replace('\\', "/");
+  if !normalized.ends_with(".bak") {
+    return None;
+  }
+  let parent = Path::new(&normalized).parent()?.to_string_lossy().replace('\\', "/");
+  if parent.is_empty() {
+    return None;
+  }
+  if parent.eq_ignore_ascii_case("project.json") {
+    return Some("project.json".to_string());
+  }
+  Some(format!("{parent}.json"))
 }
 
 fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
@@ -234,21 +283,24 @@ fn snapshot_file_before_save(project_dir: &Path, data_path: &Path, relative_path
   if !data_path.exists() {
     return Ok(());
   }
-  let backup_dir = project_dir.join(SNAPSHOT_DIR);
-  fs::create_dir_all(&backup_dir).map_err(|error| format!("failed to create snapshot dir: {error}"))?;
-  let safe_name = relative_path.replace(['/', '\\'], "__");
-  let backup_path = backup_dir.join(format!("{safe_name}-{}.bak", snapshot_timestamp()));
+  let ring_dir = snapshot_ring_dir(project_dir, relative_path);
+  fs::create_dir_all(&ring_dir).map_err(|error| format!("failed to create snapshot dir: {error}"))?;
+  let backup_path = ring_dir.join(format!("{}.bak", snapshot_timestamp()));
   fs::copy(data_path, &backup_path).map_err(|error| format!("failed to write file snapshot: {error}"))?;
-  prune_file_snapshots(&backup_dir)
+  prune_ring_dir(&ring_dir, snapshot_cap_for_relative(relative_path))?;
+  prune_legacy_flat_for_relative(project_dir, relative_path)
 }
 
-fn is_file_snapshot_name(name: &str) -> bool {
+fn is_bak_file_name(name: &str) -> bool {
   name.ends_with(".bak")
 }
 
-fn prune_file_snapshots(backup_dir: &Path) -> Result<(), String> {
+fn prune_ring_dir(ring_dir: &Path, cap: usize) -> Result<(), String> {
+  if !ring_dir.exists() {
+    return Ok(());
+  }
   let mut snapshots: Vec<PathBuf> = Vec::new();
-  for entry in fs::read_dir(backup_dir)
+  for entry in fs::read_dir(ring_dir)
     .map_err(|error| format!("failed to read snapshot dir: {error}"))?
   {
     let entry = entry.map_err(|error| format!("failed to read snapshot entry: {error}"))?;
@@ -256,14 +308,91 @@ fn prune_file_snapshots(backup_dir: &Path) -> Result<(), String> {
       continue;
     }
     let name = entry.file_name().to_string_lossy().to_string();
-    if is_file_snapshot_name(&name) || is_snapshot_file_name(&name) {
+    if is_bak_file_name(&name) {
       snapshots.push(entry.path());
     }
   }
   snapshots.sort();
-  while snapshots.len() > MAX_PROJECT_SNAPSHOTS {
+  while snapshots.len() > cap {
     let oldest = snapshots.remove(0);
     fs::remove_file(&oldest).map_err(|error| format!("failed to prune snapshot: {error}"))?;
+  }
+  Ok(())
+}
+
+/// Older builds stored flat `scripts__id__scenes__id.json-ts.bak` in backups root.
+fn prune_legacy_flat_for_relative(project_dir: &Path, relative_path: &str) -> Result<(), String> {
+  let backup_root = project_dir.join(SNAPSHOT_DIR);
+  if !backup_root.exists() {
+    return Ok(());
+  }
+  let safe_prefix = format!("{}-", relative_path.replace(['/', '\\'], "__"));
+  let mut snapshots: Vec<PathBuf> = Vec::new();
+  for entry in fs::read_dir(&backup_root)
+    .map_err(|error| format!("failed to read snapshot dir: {error}"))?
+  {
+    let entry = entry.map_err(|error| format!("failed to read snapshot entry: {error}"))?;
+    if !entry.path().is_file() {
+      continue;
+    }
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name.starts_with(&safe_prefix) && name.ends_with(".bak") {
+      snapshots.push(entry.path());
+    }
+  }
+  // Prefer the nested ring; drop legacy flats for this file once a ring exists.
+  let ring_dir = snapshot_ring_dir(project_dir, relative_path);
+  let ring_has_files = ring_dir.exists()
+    && fs::read_dir(&ring_dir)
+      .map(|mut it| it.next().is_some())
+      .unwrap_or(false);
+  if ring_has_files {
+    for path in snapshots {
+      let _ = fs::remove_file(path);
+    }
+    return Ok(());
+  }
+  snapshots.sort();
+  let cap = snapshot_cap_for_relative(relative_path);
+  while snapshots.len() > cap {
+    let oldest = snapshots.remove(0);
+    fs::remove_file(&oldest).map_err(|error| format!("failed to prune snapshot: {error}"))?;
+  }
+  Ok(())
+}
+
+fn validate_backup_file_name(file_name: &str) -> Result<(), String> {
+  let normalized = file_name.replace('\\', "/");
+  if normalized.is_empty()
+    || normalized.contains("..")
+    || Path::new(&normalized).is_absolute()
+  {
+    return Err("invalid backup file name".to_string());
+  }
+  if !normalized.ends_with(".bak") && !is_legacy_monolithic_snapshot_name(&normalized) {
+    return Err("invalid backup file name".to_string());
+  }
+  Ok(())
+}
+
+fn collect_bak_files(dir: &Path, backup_root: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+  if !dir.exists() {
+    return Ok(());
+  }
+  for entry in fs::read_dir(dir).map_err(|error| format!("failed to read backups: {error}"))? {
+    let entry = entry.map_err(|error| format!("failed to read backup entry: {error}"))?;
+    let path = entry.path();
+    if path.is_dir() {
+      collect_bak_files(&path, backup_root, out)?;
+      continue;
+    }
+    if !path.is_file() {
+      continue;
+    }
+    let name = entry.file_name().to_string_lossy().to_string();
+    if is_bak_file_name(&name) || is_legacy_monolithic_snapshot_name(&name) {
+      out.push(path);
+    }
   }
   Ok(())
 }
@@ -360,7 +489,13 @@ fn save_project_to_path(
   project_json: String,
   expected_hash: Option<String>,
 ) -> Result<ProjectMeta, String> {
-  write_project_file(project_path, "project.json".to_string(), project_json, expected_hash)
+  write_project_file(
+    project_path,
+    "project.json".to_string(),
+    project_json,
+    expected_hash,
+    Some(true),
+  )
 }
 
 #[tauri::command]
@@ -369,6 +504,7 @@ fn write_project_file(
   relative_path: String,
   contents: String,
   expected_hash: Option<String>,
+  take_snapshot: Option<bool>,
 ) -> Result<ProjectMeta, String> {
   if relative_path.replace('\\', "/").ends_with(".json") {
     serde_json::from_str::<Value>(&contents)
@@ -387,7 +523,9 @@ fn write_project_file(
       }
     }
   }
-  snapshot_file_before_save(&project_dir, &data_path, &relative_path)?;
+  if take_snapshot.unwrap_or(false) {
+    snapshot_file_before_save(&project_dir, &data_path, &relative_path)?;
+  }
   ensure_parent_dir(&data_path)?;
   let file_name = data_path
     .file_name()
@@ -753,6 +891,170 @@ fn fit_window_to_monitor(window: &tauri::WebviewWindow) {
   let _ = window.center();
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectBackupEntry {
+  file_name: String,
+  original_relative_path: String,
+  mtime_ms: u64,
+  size: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreBackupResult {
+  restored_relative_path: String,
+}
+
+fn parse_legacy_flat_backup_original_path(file_name: &str) -> Option<String> {
+  // `{safe_relative}-{secs}-{millis}.bak` where safe_relative used `__` for `/`
+  if !file_name.ends_with(".bak") {
+    return None;
+  }
+  let without_ext = &file_name[..file_name.len() - 4];
+  let bytes = without_ext.as_bytes();
+  let mut idx = without_ext.len();
+  while idx > 0 && bytes[idx - 1].is_ascii_digit() {
+    idx -= 1;
+  }
+  if idx == without_ext.len() || idx == 0 || bytes[idx - 1] != b'-' {
+    return None;
+  }
+  idx -= 1;
+  let after_millis_dash = idx;
+  while idx > 0 && bytes[idx - 1].is_ascii_digit() {
+    idx -= 1;
+  }
+  if idx == after_millis_dash || idx == 0 || bytes[idx - 1] != b'-' {
+    return None;
+  }
+  let safe = &without_ext[..idx - 1];
+  if safe.is_empty() {
+    return None;
+  }
+  Some(safe.replace("__", "/"))
+}
+
+#[tauri::command]
+fn list_project_backups(project_path: String) -> Result<Vec<ProjectBackupEntry>, String> {
+  let project_dir = PathBuf::from(project_path);
+  let backup_dir = project_dir.join(SNAPSHOT_DIR);
+  if !backup_dir.exists() {
+    return Ok(Vec::new());
+  }
+  let mut files: Vec<PathBuf> = Vec::new();
+  collect_bak_files(&backup_dir, &backup_dir, &mut files)?;
+  let mut entries: Vec<ProjectBackupEntry> = Vec::new();
+  for path in files {
+    let Some(backup_rel) = backup_rel_within_dir(&backup_dir, &path) else {
+      continue;
+    };
+    let original = if backup_rel.contains('/') {
+      original_path_from_ring_backup(&backup_rel)
+    } else {
+      parse_legacy_flat_backup_original_path(&backup_rel)
+    };
+    let Some(original) = original else {
+      continue;
+    };
+    let meta = compute_project_meta(&path)?;
+    entries.push(ProjectBackupEntry {
+      file_name: backup_rel,
+      original_relative_path: original,
+      mtime_ms: meta.mtime_ms,
+      size: meta.size,
+    });
+  }
+  entries.sort_by(|a, b| b.mtime_ms.cmp(&a.mtime_ms));
+  Ok(entries)
+}
+
+#[tauri::command]
+fn read_project_backup(project_path: String, file_name: String) -> Result<String, String> {
+  validate_backup_file_name(&file_name)?;
+  let path = PathBuf::from(project_path)
+    .join(SNAPSHOT_DIR)
+    .join(file_name.replace('\\', "/"));
+  if !path.exists() || !path.is_file() {
+    return Err("backup file not found".to_string());
+  }
+  fs::read_to_string(path).map_err(|error| format!("failed to read backup: {error}"))
+}
+
+#[tauri::command]
+fn restore_project_backup(
+  project_path: String,
+  file_name: String,
+  as_copy: bool,
+) -> Result<RestoreBackupResult, String> {
+  validate_backup_file_name(&file_name)?;
+  let project_dir = PathBuf::from(&project_path);
+  let backup_rel = file_name.replace('\\', "/");
+  let backup_path = project_dir.join(SNAPSHOT_DIR).join(&backup_rel);
+  if !backup_path.exists() {
+    return Err("backup file not found".to_string());
+  }
+  let original = if backup_rel.contains('/') {
+    original_path_from_ring_backup(&backup_rel)
+  } else {
+    parse_legacy_flat_backup_original_path(&backup_rel)
+  }
+  .ok_or_else(|| "unable to parse backup original path".to_string())?;
+  let content =
+    fs::read_to_string(&backup_path).map_err(|error| format!("failed to read backup: {error}"))?;
+
+  let target_relative = if as_copy {
+    let stamp = snapshot_timestamp();
+    if original.eq_ignore_ascii_case("project.json") {
+      format!("project.restored-{stamp}.json")
+    } else if let Some(stripped) = original.strip_suffix(".json") {
+      format!("{stripped}.restored-{stamp}.json")
+    } else {
+      format!("{original}.restored-{stamp}")
+    }
+  } else {
+    original.clone()
+  };
+
+  write_project_file(
+    project_path,
+    target_relative.clone(),
+    content,
+    None,
+    Some(!as_copy),
+  )?;
+  Ok(RestoreBackupResult {
+    restored_relative_path: target_relative,
+  })
+}
+
+#[tauri::command]
+fn save_synced_copies(
+  project_path: String,
+  relative_paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+  let project_dir = PathBuf::from(&project_path);
+  if !project_dir.exists() || !project_dir.is_dir() {
+    return Err("project path does not exist or is not a directory".to_string());
+  }
+  let stamp = snapshot_timestamp();
+  let out_dir = project_dir.join(".lightscript/saved-both");
+  fs::create_dir_all(&out_dir).map_err(|error| format!("failed to create saved-both dir: {error}"))?;
+  let mut written: Vec<String> = Vec::new();
+  for relative in relative_paths {
+    let source = resolve_project_relative(&project_dir, &relative)?;
+    if !source.exists() {
+      continue;
+    }
+    let safe = relative.replace(['/', '\\'], "__");
+    let dest_name = format!("{safe}.synced-{stamp}.json");
+    let dest = out_dir.join(&dest_name);
+    fs::copy(&source, &dest).map_err(|error| format!("failed to copy synced file: {error}"))?;
+    written.push(format!(".lightscript/saved-both/{dest_name}"));
+  }
+  Ok(written)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -771,6 +1073,10 @@ pub fn run() {
       list_conflict_copies,
       get_project_last_opened,
       set_project_last_opened,
+      list_project_backups,
+      read_project_backup,
+      restore_project_backup,
+      save_synced_copies,
       load_project_from_path,
       write_text_export,
       write_docx_export,

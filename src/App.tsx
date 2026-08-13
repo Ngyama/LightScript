@@ -12,6 +12,11 @@ import {
   sceneRelativePath,
   type ProjectFileSnapshot,
 } from "./domain/projectFormat";
+import {
+  recordSnapshotTaken,
+  shouldTakeFileSnapshot,
+  type SnapshotBook,
+} from "./domain/snapshotPolicy";
 import { useEditorStore } from "./state/editorStore";
 import {
   createProject,
@@ -23,6 +28,7 @@ import {
   loadProjectBundle,
   pickDirectory,
   getRepoPath,
+  saveSyncedCopies,
   setProjectLastOpened,
   setRepoPath,
   writeProjectFile,
@@ -34,6 +40,8 @@ import { EditorCanvas } from "./ui/canvas/EditorCanvas";
 import { ExportDialog } from "./ui/floating/ExportDialog";
 import { ImportDialog } from "./ui/floating/ImportDialog";
 import { ModalDialog } from "./ui/floating/ModalDialog";
+import { ExternalUpdateDialog } from "./ui/floating/ExternalUpdateDialog";
+import { RecoveryDialog } from "./ui/floating/RecoveryDialog";
 import { SettingsDialog } from "./ui/floating/SettingsDialog";
 import { UpdateAvailableDialog } from "./ui/floating/UpdateAvailableDialog";
 import { SavedStatus } from "./ui/floating/SavedStatus";
@@ -77,6 +85,7 @@ export default function App() {
   const [importTargetScene, setImportTargetScene] = useState<Scene | null>(null);
   const selection = useEditorStore((state) => state.selection);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
   const [repoPath, setRepoPathInput] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -100,6 +109,8 @@ export default function App() {
   const baselineHashesRef = useRef<Record<string, string>>({});
   // Serialized payloads from the last successful open/save, keyed by relative path.
   const savedSnapshotRef = useRef<ProjectFileSnapshot>({});
+  // Per-file last `.bak` snapshot book (idle + char-delta gates).
+  const snapshotBookRef = useRef<SnapshotBook>({});
   // True while an auto-save write is in flight, so the poller doesn't mistake
   // our own half-written file for an external change.
   const isSavingRef = useRef(false);
@@ -166,12 +177,25 @@ export default function App() {
 
       try {
         for (const write of plan.writes) {
+          const takeSnapshot = shouldTakeFileSnapshot({
+            relativePath: write.relativePath,
+            nextPayload: write.payload,
+            previous: snapshotBookRef.current[write.relativePath],
+          });
           const meta = await writeProjectFile(
             activeProjectPath,
             write.relativePath,
             write.payload,
             write.expectedHash,
+            takeSnapshot,
           );
+          if (takeSnapshot) {
+            recordSnapshotTaken(
+              snapshotBookRef.current,
+              write.relativePath,
+              write.payload,
+            );
+          }
           if (meta?.hash) {
             baselineHashesRef.current[write.relativePath] = meta.hash;
           }
@@ -383,6 +407,47 @@ export default function App() {
     };
   }, [activeProjectPath, applyConflictCopies, externalUpdate, isHydrated, stage]);
 
+  // When the user focuses another scene, refresh that file's baseline so a
+  // Drive update to an inactive scene is noticed before the next edit/save.
+  useEffect(() => {
+    if (!isHydrated || stage !== "editor" || !activeProjectPath || externalUpdate) {
+      return;
+    }
+    if (!selection.scriptId || !selection.sceneId) {
+      return;
+    }
+    const relativePath = sceneRelativePath(selection.scriptId, selection.sceneId);
+    let cancelled = false;
+    void getProjectFileMeta(activeProjectPath, relativePath)
+      .then((meta) => {
+        if (cancelled || !meta) {
+          return;
+        }
+        const baseline = baselineHashesRef.current[relativePath];
+        if (baseline && meta.hash !== baseline) {
+          setExternalUpdate(true);
+          return;
+        }
+        // First time visiting this scene in-session, or file matches: adopt disk hash.
+        if (!baseline || meta.hash === baseline) {
+          baselineHashesRef.current[relativePath] = meta.hash;
+        }
+      })
+      .catch(() => {
+        // Ignore transient read errors.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeProjectPath,
+    externalUpdate,
+    isHydrated,
+    selection.sceneId,
+    selection.scriptId,
+    stage,
+  ]);
+
   const refreshProjectList = async () => {
     const projects = await listProjects();
     setProjectList(projects);
@@ -391,7 +456,7 @@ export default function App() {
   const applyRepoPathChange = async (nextPath: string): Promise<boolean> => {
     const trimmedPath = nextPath.trim();
     if (!trimmedPath) {
-      setErrorMessage("Repository path cannot be empty.");
+      setErrorMessage("Writing library folder cannot be empty.");
       return false;
     }
     try {
@@ -431,6 +496,7 @@ export default function App() {
       assertProjectInvariant(bundle.project);
       hydrateProject(bundle.project, bundle.lastOpened);
       captureSavedSnapshot(bundle.fileSnapshot, bundle.fileMetas);
+      snapshotBookRef.current = {};
       setExternalUpdate(false);
       applyConflictCopies(await listConflictCopies(summary.path));
       setActiveProjectPath(summary.path);
@@ -456,18 +522,18 @@ export default function App() {
       assertProjectInvariant(bundle.project);
       hydrateProject(bundle.project, bundle.lastOpened);
       captureSavedSnapshot(bundle.fileSnapshot, bundle.fileMetas);
+      snapshotBookRef.current = {};
       setExternalUpdate(false);
-      setSaveInfo(`Reloaded at ${new Date().toLocaleTimeString()}`);
+      setSaveInfo(`已加载同步版本 · ${new Date().toLocaleTimeString()}`);
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to reload project.");
+      setErrorMessage(error instanceof Error ? error.message : "加载同步版本失败。");
     }
   };
 
   const handleKeepLocal = async () => {
-    // User chose to keep their in-memory version. Adopt current on-disk
-    // fingerprints as the new baseline so we stop prompting; the next auto-save
-    // will overwrite the synced copy (last-write-wins, as designed).
+    // Keep this version: adopt current on-disk fingerprints as baseline so the
+    // next autosave can overwrite synced files with in-memory content.
     if (activeProjectPath) {
       try {
         const paths = Object.keys(savedSnapshotRef.current);
@@ -484,6 +550,36 @@ export default function App() {
       }
     }
     setExternalUpdate(false);
+  };
+
+  const handleSaveBoth = async () => {
+    if (!activeProjectPath) {
+      setExternalUpdate(false);
+      return;
+    }
+    try {
+      const drifted: string[] = [];
+      for (const relativePath of Object.keys(savedSnapshotRef.current)) {
+        const meta = await getProjectFileMeta(activeProjectPath, relativePath);
+        const baseline = baselineHashesRef.current[relativePath];
+        if (meta?.hash && baseline && meta.hash !== baseline) {
+          drifted.push(relativePath);
+        }
+      }
+      // Always include active scene + meta if present on disk.
+      if (!drifted.includes(PROJECT_META_FILE)) {
+        drifted.push(PROJECT_META_FILE);
+      }
+      const written = await saveSyncedCopies(activeProjectPath, drifted);
+      await handleKeepLocal();
+      setSaveInfo(
+        written.length > 0
+          ? `已另存同步副本（${written.length} 个）到 .lightscript/saved-both`
+          : "已保留当前编辑内容——未找到可另存的同步文件",
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "两个都保留失败。");
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -602,23 +698,26 @@ export default function App() {
       return (
         <div className="startup-screen">
           <div className="startup-card">
-            <h1>Set Repository Path</h1>
-            <p>Choose one local folder as the root for all your projects. You only need to set it once.</p>
+            <h1>Set writing library folder</h1>
+            <p>
+              Choose one local folder as the root for all your projects. You only
+              need to set it once.
+            </p>
             <p className="startup-hint">
               To sync across devices, point this to a folder inside your Google
               Drive (Drive for desktop). LightScript will detect when another
-              device syncs in changes and offer to reload.
+              device syncs in changes and ask what to do.
             </p>
             <input
               value={repoPath}
               onChange={(event) => setRepoPathInput(event.target.value)}
-              placeholder="D:\\WritingRepo"
+              placeholder="D:\\WritingLibrary"
             />
             <button type="button" onClick={handleBrowseRepoPath}>
-              Browse Directory
+              Browse folder
             </button>
             <button type="button" onClick={handleRepoSave}>
-              Save Repository Path
+              Save writing library folder
             </button>
             {errorMessage && <p className="error">{errorMessage}</p>}
           </div>
@@ -643,9 +742,9 @@ export default function App() {
                 type="button"
                 className="hub-topbar-button"
                 onClick={handleBrowseRepoPath}
-                title="Browse for a different repository folder"
+                title="Browse for a different writing library folder"
               >
-                Browse Directory
+                Browse folder
               </button>
               <div className="hub-topbar-path" title={repoPath}>
                 {repoPath || "No repository selected"}
@@ -786,10 +885,14 @@ export default function App() {
         actions={
           stage === "editor"
             ? [
-                { label: "Import", onClick: handleImport },
-                { label: "Export", onClick: handleExport },
-                { label: "Hub", onClick: handleHub },
-                { label: "Settings", onClick: handleSettings },
+                { label: "导入", onClick: handleImport },
+                { label: "导出", onClick: handleExport },
+                {
+                  label: "备份与恢复",
+                  onClick: () => setIsRecoveryOpen(true),
+                },
+                { label: "作品库", onClick: handleHub },
+                { label: "设置", onClick: handleSettings },
               ]
             : undefined
         }
@@ -815,14 +918,13 @@ export default function App() {
           <div className="conflict-banner" role="alert">
             <div className="conflict-banner-body">
               <strong>
-                {conflictCopies.length} possible conflict{" "}
-                {conflictCopies.length === 1 ? "copy" : "copies"} detected
+                发现 {conflictCopies.length} 个其他版本文件
               </strong>
               <span className="conflict-banner-detail">
-                Google Drive kept an extra copy because two devices edited this
-                project at once. LightScript reads <code>project.json</code> and
-                scene files under <code>scripts/</code>; review and remove these
-                in your file manager to avoid losing edits: {conflictCopies.join(", ")}
+                可能是两台设备同时编辑时，Google Drive 留下的额外副本。LightScript
+                会读取 <code>project.json</code> 与 <code>scripts/</code>{" "}
+                下的 Scene 文件。请在文件管理器中查看：
+                {conflictCopies.join(", ")}
               </span>
             </div>
             <button
@@ -830,22 +932,32 @@ export default function App() {
               className="conflict-banner-dismiss"
               onClick={() => setConflictDismissed(true)}
             >
-              Dismiss
+              知道了
             </button>
           </div>
         )}
         {externalUpdate && stage === "editor" && (
-          <ModalDialog
-            title="External update detected"
-            message="This project's file on disk changed outside LightScript (for example, Google Drive synced in a newer copy from another device). Reload to load the latest version, or keep editing this copy and overwrite it on the next save."
-            confirmText="Reload"
-            cancelText="Keep my version"
-            onConfirm={() => {
+          <ExternalUpdateDialog
+            onUseSynced={() => {
               void handleReloadExternal();
             }}
-            onClose={() => {
+            onKeepThis={() => {
               void handleKeepLocal();
             }}
+            onSaveBoth={() => {
+              void handleSaveBoth();
+            }}
+          />
+        )}
+        {isRecoveryOpen && activeProjectPath && (
+          <RecoveryDialog
+            projectPath={activeProjectPath}
+            onClose={() => setIsRecoveryOpen(false)}
+            onRestored={(message) => {
+              setErrorMessage(null);
+              setSaveInfo(message);
+            }}
+            onError={(message) => setErrorMessage(message)}
           />
         )}
         {pendingDelete && (

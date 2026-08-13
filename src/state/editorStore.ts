@@ -18,6 +18,14 @@ import {
   type LastOpened,
 } from "../domain/selection";
 import type { SearchMatch } from "../domain/searchProject";
+import {
+  createSceneHistoryStack,
+  pushSceneHistory,
+  redoSceneHistory,
+  undoSceneHistory,
+  type HistoryPushKind,
+  type SceneHistoryStack,
+} from "../domain/sceneHistory";
 
 const randomId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
@@ -36,6 +44,8 @@ type EditorState = {
   project: Project;
   selection: Selection;
   navigationTarget: NavigationTarget | null;
+  /** Per-scene undo stacks for block edits (session memory only). */
+  sceneHistories: Record<string, SceneHistoryStack>;
   isHydrated: boolean;
   setHydrated: (hydrated: boolean) => void;
   hydrateProject: (project: Project, lastOpened?: LastOpened | null) => void;
@@ -51,6 +61,13 @@ type EditorState = {
   updateSceneOutline: (sceneId: string, outline: string) => void;
   updateSceneLocation: (sceneId: string, location: string) => void;
   setSceneBlocks: (sceneId: string, blocks: SceneBlock[]) => void;
+  setSceneBlocksWithHistory: (
+    sceneId: string,
+    blocks: SceneBlock[],
+    kind?: HistoryPushKind,
+  ) => void;
+  undoSceneBlocks: (sceneId: string) => boolean;
+  redoSceneBlocks: (sceneId: string) => boolean;
   addGlobalCharacter: (name: string) => string | undefined;
   renameGlobalCharacter: (characterId: string, name: string) => void;
   deleteGlobalCharacter: (characterId: string) => void;
@@ -120,6 +137,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   project: defaultProject,
   selection: defaultSelection,
   navigationTarget: null,
+  sceneHistories: {},
   isHydrated: false,
   setHydrated: (hydrated) => set({ isHydrated: hydrated }),
   hydrateProject: (project, lastOpened) => {
@@ -135,6 +153,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         scriptId,
         sceneId,
       },
+      sceneHistories: {},
       isHydrated: true,
     });
   },
@@ -358,6 +377,83 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         })),
       ),
     })),
+  setSceneBlocksWithHistory: (sceneId, blocks, kind = "structural") =>
+    set((state) => {
+      const current = findScene(state.project, sceneId);
+      if (!current) {
+        return state;
+      }
+      const previous = state.sceneHistories[sceneId] ?? createSceneHistoryStack();
+      const nextHistory = pushSceneHistory(previous, current.blocks, kind);
+      return {
+        project: withInvariant(
+          mapScenes(state.project, sceneId, (scene) => ({
+            ...scene,
+            blocks,
+          })),
+        ),
+        sceneHistories: {
+          ...state.sceneHistories,
+          [sceneId]: nextHistory,
+        },
+      };
+    }),
+  undoSceneBlocks: (sceneId) => {
+    let applied = false;
+    set((state) => {
+      const current = findScene(state.project, sceneId);
+      const stack = state.sceneHistories[sceneId];
+      if (!current || !stack) {
+        return state;
+      }
+      const result = undoSceneHistory(stack, current.blocks);
+      if (!result) {
+        return state;
+      }
+      applied = true;
+      return {
+        project: withInvariant(
+          mapScenes(state.project, sceneId, (scene) => ({
+            ...scene,
+            blocks: result.blocks,
+          })),
+        ),
+        sceneHistories: {
+          ...state.sceneHistories,
+          [sceneId]: result.stack,
+        },
+      };
+    });
+    return applied;
+  },
+  redoSceneBlocks: (sceneId) => {
+    let applied = false;
+    set((state) => {
+      const current = findScene(state.project, sceneId);
+      const stack = state.sceneHistories[sceneId];
+      if (!current || !stack) {
+        return state;
+      }
+      const result = redoSceneHistory(stack, current.blocks);
+      if (!result) {
+        return state;
+      }
+      applied = true;
+      return {
+        project: withInvariant(
+          mapScenes(state.project, sceneId, (scene) => ({
+            ...scene,
+            blocks: result.blocks,
+          })),
+        ),
+        sceneHistories: {
+          ...state.sceneHistories,
+          [sceneId]: result.stack,
+        },
+      };
+    });
+    return applied;
+  },
   addGlobalCharacter: (name) => {
     const trimmed = name.trim();
     if (!trimmed) return undefined;
@@ -479,6 +575,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const scene = findScene(nextProject, sceneId);
       if (!scene) return state;
 
+      const previous = state.sceneHistories[sceneId] ?? createSceneHistoryStack();
+      const nextHistory = pushSceneHistory(previous, scene.blocks, "structural");
+
       if (characterId && !scene.characterIds.includes(characterId)) {
         nextProject = mapScenes(nextProject, sceneId, (current) => ({
           ...current,
@@ -497,7 +596,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         }),
       }));
 
-      return { project: withInvariant(nextProject) };
+      return {
+        project: withInvariant(nextProject),
+        sceneHistories: {
+          ...state.sceneHistories,
+          [sceneId]: nextHistory,
+        },
+      };
     }),
   navigateToSearchMatch: (match) =>
     set((state) => ({

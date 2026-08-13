@@ -459,6 +459,9 @@ export function SceneEditor() {
   const scene = useSelectedScene();
   const project = useEditorStore((state) => state.project);
   const setSceneBlocks = useEditorStore((state) => state.setSceneBlocks);
+  const setSceneBlocksWithHistory = useEditorStore((state) => state.setSceneBlocksWithHistory);
+  const undoSceneBlocks = useEditorStore((state) => state.undoSceneBlocks);
+  const redoSceneBlocks = useEditorStore((state) => state.redoSceneBlocks);
   const updateDialogueCharacter = useEditorStore((state) => state.updateDialogueCharacter);
   const navigationTarget = useEditorStore((state) => state.navigationTarget);
   const clearNavigationTarget = useEditorStore((state) => state.clearNavigationTarget);
@@ -609,6 +612,27 @@ export function SceneEditor() {
   }, [blocks, blockTextSelection]);
 
   useEffect(() => {
+    const handleUndoRedo = (event: KeyboardEvent): void => {
+      if (!scene) return;
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const isUndo = key === "z" && !event.shiftKey;
+      const isRedo = key === "y" || (key === "z" && event.shiftKey);
+      if (!isUndo && !isRedo) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (isUndo) {
+        undoSceneBlocks(scene.id);
+      } else {
+        redoSceneBlocks(scene.id);
+      }
+    };
+    document.addEventListener("keydown", handleUndoRedo, true);
+    return () => document.removeEventListener("keydown", handleUndoRedo, true);
+  }, [scene, undoSceneBlocks, redoSceneBlocks]);
+
+  useEffect(() => {
     if (!isQuoteMode) return;
     setSpeakerMenu(null);
     setPendingSpeakerMenuForId(null);
@@ -721,9 +745,12 @@ export function SceneEditor() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speakerMenu, sceneCharacters, blocks]);
 
-  const persistBlocks = (nextBlocks: SceneBlock[]) => {
+  const persistBlocks = (
+    nextBlocks: SceneBlock[],
+    kind: "typing" | "structural" = "structural",
+  ) => {
     if (!scene) return;
-    setSceneBlocks(scene.id, nextBlocks);
+    setSceneBlocksWithHistory(scene.id, nextBlocks, kind);
   };
 
   const clearBlockTextSelection = () => {
@@ -955,7 +982,7 @@ export function SceneEditor() {
     if (!current || current.type !== "narrative") return;
     const next = [...blocks];
     next[index] = { ...current, text: stripHardNewlines(value) };
-    persistBlocks(next);
+    persistBlocks(next, "typing");
   };
 
   const updateDialogueText = (index: number, value: string) => {
@@ -963,7 +990,7 @@ export function SceneEditor() {
     if (!current || current.type !== "dialogue") return;
     const next = [...blocks];
     next[index] = { ...current, text: stripHardNewlines(value) };
-    persistBlocks(next);
+    persistBlocks(next, "typing");
   };
 
   const setBlockSpeaker = (blockId: string, characterId: string | undefined) => {

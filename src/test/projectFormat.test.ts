@@ -127,6 +127,39 @@ describe("planProjectFilesSave", () => {
     expect(plan.writes[0]?.payload).toBe(sceneFilePayload(edited.scripts[0].scenes[0]));
   });
 
+  test("writes scenes before project meta when both dirty", () => {
+    const project = createDefaultProject();
+    const saved = projectFileSnapshot(project);
+    const hashes = Object.fromEntries(Object.keys(saved).map((path) => [path, "h"]));
+    const script = project.scripts[0];
+    const scene = script.scenes[0];
+    const edited = {
+      ...project,
+      title: "Renamed",
+      scripts: [
+        {
+          ...script,
+          scenes: [
+            {
+              ...scene,
+              blocks: [{ id: "n1", type: "narrative" as const, text: "Changed" }],
+            },
+          ],
+        },
+      ],
+    };
+    const plan = planProjectFilesSave({
+      project: edited,
+      savedSnapshot: saved,
+      baselineHashes: hashes,
+      diskHashes: hashes,
+    });
+    expect(plan.writes.map((write) => write.relativePath)).toEqual([
+      sceneRelativePath(script.id, scene.id),
+      PROJECT_META_FILE,
+    ]);
+  });
+
   test("blocks writes when disk hash drifted", () => {
     const project = createDefaultProject();
     const saved = projectFileSnapshot(project);
