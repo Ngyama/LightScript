@@ -3,7 +3,7 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export type UpdateProgress = {
-  /** 0âE00 when content length is known; otherwise null while downloading. */
+  /** 0-100 when content length is known; otherwise null while downloading. */
   percent: number | null;
   status: "idle" | "checking" | "available" | "downloading" | "restarting" | "upToDate" | "error";
   message?: string;
@@ -66,7 +66,7 @@ export function formatUpdateError(error: unknown): string {
   const message =
     error instanceof Error && error.message.trim() ? error.message : String(error);
   if (/404|not found|failed to fetch|error sending request|timed out/i.test(message)) {
-    return "ććŞćžĺ°ĺŻç¨ć´ć°EĺŻč˝ĺ°ćŞĺĺ¸EźćEĺ˝ĺçŚťçşżEE;
+    return "暂未找到可用更新（可能尚未发布，或当前离线）。";
   }
   return message;
 }
