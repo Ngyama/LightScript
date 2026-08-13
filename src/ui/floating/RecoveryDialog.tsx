@@ -18,7 +18,7 @@ import {
 type RecoveryDialogProps = {
   projectPath: string;
   onClose: () => void;
-  onRestored: (message: string) => void;
+  onRestored: (message: string, options?: { reload?: boolean }) => void;
   onError: (message: string) => void;
 };
 
@@ -280,11 +280,19 @@ export function RecoveryDialog({
       const label = selectedEntry
         ? resolveBackupDisplayName(selectedEntry.originalRelativePath, project)
         : result.restoredRelativePath;
-      onRestored(
-        asCopy
-          ? `已另存为副本：${label}`
-          : `已恢复「${label}」（仅此文件；其他 Scene 不受影响）。若编辑器未更新，请选择「使用同步过来的版本」或重新打开作品。`,
-      );
+      if (asCopy) {
+        onRestored(
+          `已另存为副本：${result.restoredRelativePath}（未加入作品结构；需要时可手动处理该文件）。`,
+          { reload: false },
+        );
+      } else if (result.catalogUpdated) {
+        onRestored(`已恢复「${label}」，并已重新加入作品结构。`, { reload: true });
+      } else {
+        onRestored(
+          `已恢复「${label}」。若编辑器未更新，将自动重新加载作品。`,
+          { reload: true },
+        );
+      }
       onClose();
     } catch (error) {
       onError(error instanceof Error ? error.message : "恢复备份失败。");
@@ -325,7 +333,8 @@ export function RecoveryDialog({
           备份与恢复
         </h2>
         <p className="modal-dialog-message">
-          左侧与作品结构同步。有改动后停手约 3 分钟会留检查点；一直发呆不会反复追加。恢复只覆盖所选文件。
+          左侧与作品结构同步。有改动后停手约 3 分钟会留检查点（含字数不变的润色）；内容完全没变时不会因发呆反复追加。恢复 Scene
+          正文时会写回文件，并在需要时把该 Scene 重新挂回对应 Script；「另存为副本」不会加入结构。
         </p>
         <div className="recovery-layout">
           <div className="recovery-tree" aria-label="作品结构">

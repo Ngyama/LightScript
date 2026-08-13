@@ -498,13 +498,16 @@ export async function restoreProjectBackup(
   projectPath: string,
   fileName: string,
   asCopy: boolean,
-): Promise<{ restoredRelativePath: string }> {
+): Promise<{ restoredRelativePath: string; catalogUpdated: boolean }> {
   if (isTauriRuntime()) {
-    return invoke<{ restoredRelativePath: string }>("restore_project_backup", {
-      projectPath,
-      fileName,
-      asCopy,
-    });
+    return invoke<{ restoredRelativePath: string; catalogUpdated: boolean }>(
+      "restore_project_backup",
+      {
+        projectPath,
+        fileName,
+        asCopy,
+      },
+    );
   }
   throw new Error("备份功能仅在桌面端可用。");
 }

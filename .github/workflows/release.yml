@@ -38,6 +38,10 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      - name: Rust unit tests
+        working-directory: src-tauri
+        run: cargo test
+
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:

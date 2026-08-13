@@ -41,7 +41,7 @@ import {
   type ProjectSummary,
 } from "./storage/projectStorage";
 import type { Scene } from "./domain/model";
-import { describeSyncStatus } from "./domain/projectSync";
+import { describeSyncStatus, isSyncConflictError, syncConflictKind } from "./domain/projectSync";
 import { EditorCanvas } from "./ui/canvas/EditorCanvas";
 import { ExportDialog } from "./ui/floating/ExportDialog";
 import { ImportDialog } from "./ui/floating/ImportDialog";
@@ -124,6 +124,8 @@ export default function App() {
   // True while an auto-save write is in flight, so the poller doesn't mistake
   // our own half-written file for an external change.
   const isSavingRef = useRef(false);
+  /** If flush is requested while a save is in flight, run one more save after. */
+  const pendingFlushRef = useRef(false);
 
   const captureSavedSnapshot = useCallback((snapshot?: ProjectFileSnapshot, metas?: Record<string, ProjectMeta | null>) => {
     const nextSnapshot = snapshot ?? projectFileSnapshot(useEditorStore.getState().project);
@@ -374,6 +376,7 @@ export default function App() {
 
     const flushSave = (): void => {
       if (isSavingRef.current) {
+        pendingFlushRef.current = true;
         return;
       }
       isSavingRef.current = true;
@@ -383,6 +386,10 @@ export default function App() {
         })
         .finally(() => {
           isSavingRef.current = false;
+          if (pendingFlushRef.current) {
+            pendingFlushRef.current = false;
+            flushSave();
+          }
         });
     };
 
@@ -559,12 +566,57 @@ export default function App() {
       return;
     }
     try {
-      await persistProjectIfNeeded({ silent: true });
       await pushProjectToCloud(projectPath, false);
       setSaveInfo("已自动同步到云端");
-    } catch {
-      // Conflict or offline — leave quietly; user can sync manually.
+    } catch (error) {
+      if (isSyncConflictError(error)) {
+        const kind = syncConflictKind(error) ?? "diverged";
+        setErrorMessage(
+          `离开时未能自动同步（${describeSyncStatus(kind)}）。请重新打开作品后使用顶栏「同步」。`,
+        );
+        return;
+      }
+      setErrorMessage(
+        error instanceof Error
+          ? `离开时未能自动同步：${error.message}`
+          : "离开时未能自动同步。请稍后手动同步。",
+      );
     }
+  };
+
+  const leaveToHub = async () => {
+    const leavingPath = activeProjectPath;
+    if (leavingPath && !externalUpdate) {
+      try {
+        const started = Date.now();
+        while (isSavingRef.current && Date.now() - started < 8000) {
+          await new Promise((resolve) => window.setTimeout(resolve, 40));
+        }
+        isSavingRef.current = true;
+        try {
+          await persistProjectIfNeeded({ silent: true });
+        } finally {
+          isSavingRef.current = false;
+        }
+        if (pendingFlushRef.current) {
+          pendingFlushRef.current = false;
+          isSavingRef.current = true;
+          try {
+            await persistProjectIfNeeded({ silent: true });
+          } finally {
+            isSavingRef.current = false;
+          }
+        }
+        await maybeAutoPush(leavingPath);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "离开前保存失败。");
+      }
+    }
+    navigateStage("projectHub");
+  };
+
+  const handleHub = () => {
+    void leaveToHub();
   };
 
   const handleOpenProject = async (summary: ProjectSummary) => {
@@ -751,21 +803,6 @@ export default function App() {
     // Snapshot the scene at open time so the dialog isn't affected if the
     // user navigates around (or edits) while it's open.
     setExportTargetScene(scene);
-  };
-
-  const handleHub = () => {
-    const leavingPath = activeProjectPath;
-    if (leavingPath && !externalUpdate) {
-      void (async () => {
-        try {
-          await persistProjectIfNeeded({ silent: true });
-          await maybeAutoPush(leavingPath);
-        } catch (error) {
-          setErrorMessage(error instanceof Error ? error.message : "离开前保存失败。");
-        }
-      })();
-    }
-    navigateStage("projectHub");
   };
 
   const handleSettings = () => setIsSettingsOpen(true);
@@ -1102,9 +1139,14 @@ export default function App() {
           <RecoveryDialog
             projectPath={activeProjectPath}
             onClose={() => setIsRecoveryOpen(false)}
-            onRestored={(message) => {
+            onRestored={(message, options) => {
               setErrorMessage(null);
               setSaveInfo(message);
+              if (options?.reload) {
+                void handleReloadExternal().then(() => {
+                  setSaveInfo(message);
+                });
+              }
             }}
             onError={(message) => setErrorMessage(message)}
           />

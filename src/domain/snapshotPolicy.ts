@@ -18,6 +18,8 @@ export type SnapshotBookEntry = {
   atMs: number;
   /** Scene: char count. Meta: JSON payload length. */
   metric: number;
+  /** Fingerprint of the last snapshotted payload (detects equal-length edits). */
+  fingerprint: string;
 };
 
 export type SnapshotBook = Record<string, SnapshotBookEntry>;
@@ -49,6 +51,15 @@ export function contentMetric(relativePath: string, payload: string): number {
   return payload.length;
 }
 
+/** Stable non-crypto fingerprint so equal-length rewrites are not treated as “no change”. */
+export function payloadFingerprint(payload: string): string {
+  let hash = 5381;
+  for (let i = 0; i < payload.length; i += 1) {
+    hash = Math.imul(hash, 33) ^ payload.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
+}
+
 function meaningfulDeltaThreshold(relativePath: string, previousMetric: number): number {
   if (isProjectMetaPath(relativePath)) {
     return SNAPSHOT_META_BYTE_DELTA;
@@ -60,8 +71,9 @@ function meaningfulDeltaThreshold(relativePath: string, previousMetric: number):
  * Decide whether to copy the on-disk file into the per-scene snapshot ring
  * before overwriting it. Live autosave stays frequent; this only gates `.bak`.
  *
- * Idle rule: ≥3 minutes since last snapshot AND content metric moved at all.
- * Unchanged content never gets another time-based snapshot (发呆只会有那一次).
+ * Idle rule: ≥3 minutes since last snapshot AND content actually changed
+ * (fingerprint differs). Identical payloads never get another time-based snapshot.
+ * Equal-length rewrites count as a real change and can pass the idle gate.
  */
 export function shouldTakeFileSnapshot(args: {
   relativePath: string;
@@ -75,21 +87,19 @@ export function shouldTakeFileSnapshot(args: {
     return true;
   }
 
-  const nextMetric = contentMetric(args.relativePath, args.nextPayload);
-  const delta = Math.abs(nextMetric - args.previous.metric);
-  if (delta === 0) {
-    // Same length/chars as last snapshot — including long idle with no real edit.
+  const nextFingerprint = payloadFingerprint(args.nextPayload);
+  if (args.previous.fingerprint === nextFingerprint) {
     return false;
   }
 
+  const nextMetric = contentMetric(args.relativePath, args.nextPayload);
+  const delta = Math.abs(nextMetric - args.previous.metric);
   const threshold = meaningfulDeltaThreshold(args.relativePath, args.previous.metric);
   if (delta >= threshold) {
     return true;
   }
 
-  // Small edits: at most one checkpoint once they've been sitting ≥3 min since
-  // the last snapshot. Further idle without more metric change cannot re-fire
-  // because recordSnapshotTaken aligns metric with live content.
+  // Small edits and equal-length rewrites: one checkpoint after idle.
   return nowMs - args.previous.atMs >= SNAPSHOT_IDLE_MS;
 }
 
@@ -102,5 +112,6 @@ export function recordSnapshotTaken(
   book[relativePath] = {
     atMs: nowMs,
     metric: contentMetric(relativePath, nextPayload),
+    fingerprint: payloadFingerprint(nextPayload),
   };
 }

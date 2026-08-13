@@ -107,6 +107,11 @@ export function SceneOrbitNavigator() {
   const [editing, setEditing] = useState<OrbitEditingState>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<
+    | { kind: "scene"; scriptId: string; sceneId: string; title: string }
+    | { kind: "script"; scriptId: string; title: string; sceneCount: number }
+    | null
+  >(null);
   const editingInputRef = useRef<HTMLInputElement | null>(null);
 
   const closeMenu = () => setMenu(null);
@@ -249,20 +254,32 @@ export function SceneOrbitNavigator() {
     }
   };
 
-  const handleDeleteScene = (scriptId: string, sceneId: string) => {
+  const handleDeleteScene = (scriptId: string, sceneId: string, title: string) => {
     closeMenu();
-    const ok = deleteScene(scriptId, sceneId);
-    if (!ok) {
-      setNoticeMessage("每个 Script 至少需要保留一个 Scene。");
-    }
+    setPendingDelete({ kind: "scene", scriptId, sceneId, title });
   };
 
-  const handleDeleteScript = (scriptId: string) => {
+  const handleDeleteScript = (scriptId: string, title: string, sceneCount: number) => {
     closeMenu();
-    const ok = deleteScript(scriptId);
-    if (!ok) {
-      setNoticeMessage("作品至少需要保留一个 Script。");
+    setPendingDelete({ kind: "script", scriptId, title, sceneCount });
+  };
+
+  const confirmPendingDelete = () => {
+    if (!pendingDelete) {
+      return;
     }
+    if (pendingDelete.kind === "scene") {
+      const ok = deleteScene(pendingDelete.scriptId, pendingDelete.sceneId);
+      if (!ok) {
+        setNoticeMessage("每个 Script 至少需要保留一个 Scene。");
+      }
+    } else {
+      const ok = deleteScript(pendingDelete.scriptId);
+      if (!ok) {
+        setNoticeMessage("作品至少需要保留一个 Script。");
+      }
+    }
+    setPendingDelete(null);
   };
 
   const handleAddSceneToScript = (scriptId: string) => {
@@ -506,7 +523,11 @@ export function SceneOrbitNavigator() {
                       type="button"
                       className="is-danger"
                       onClick={() =>
-                        handleDeleteScene(menuTarget.script.id, menuTarget.scene.id)
+                        handleDeleteScene(
+                          menuTarget.script.id,
+                          menuTarget.scene.id,
+                          menuTarget.scene.title,
+                        )
                       }
                     >
                       删除 Scene
@@ -540,7 +561,13 @@ export function SceneOrbitNavigator() {
                     <button
                       type="button"
                       className="is-danger"
-                      onClick={() => handleDeleteScript(menuTarget.script.id)}
+                      onClick={() =>
+                        handleDeleteScript(
+                          menuTarget.script.id,
+                          menuTarget.script.title,
+                          menuTarget.script.scenes.length,
+                        )
+                      }
                     >
                       删除 Script
                     </button>
@@ -549,6 +576,23 @@ export function SceneOrbitNavigator() {
               )}
             </ul>
           </>,
+          document.body,
+        )}
+      {pendingDelete &&
+        createPortal(
+          <ModalDialog
+            title={pendingDelete.kind === "scene" ? "删除 Scene" : "删除 Script"}
+            message={
+              pendingDelete.kind === "scene"
+                ? `确定删除 Scene「${pendingDelete.title}」？正文文件将从作品中移除（本地备份中仍可能保留检查点）。`
+                : `确定删除 Script「${pendingDelete.title}」及其下 ${pendingDelete.sceneCount} 个 Scene？正文文件将一并移除（本地备份中仍可能保留检查点）。`
+            }
+            confirmText="删除"
+            cancelText="取消"
+            variant="danger"
+            onConfirm={confirmPendingDelete}
+            onClose={() => setPendingDelete(null)}
+          />,
           document.body,
         )}
       {noticeMessage &&

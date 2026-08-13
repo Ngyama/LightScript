@@ -631,39 +631,147 @@ fn now_ms() -> u64 {
     .unwrap_or(0)
 }
 
+/// Scene bodies before `project.json` so a crash mid-copy never leaves a catalog
+/// pointing at missing scene files (same ordering as local autosave).
+fn ordered_live_relative_paths(files: &HashMap<String, String>) -> Vec<String> {
+  let mut paths: Vec<String> = files.keys().cloned().collect();
+  paths.sort_by(|a, b| {
+    let a_meta = if a == "project.json" { 1 } else { 0 };
+    let b_meta = if b == "project.json" { 1 } else { 0 };
+    a_meta.cmp(&b_meta).then_with(|| a.cmp(b))
+  });
+  paths
+}
+
+fn copy_one_live_file(from: &Path, to: &Path, relative: &str) -> Result<(), String> {
+  let source = resolve_project_relative(from, relative)?;
+  if !source.exists() {
+    return Err(format!("同步源文件不存在: {relative}"));
+  }
+  let dest = to.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+  ensure_parent_dir(&dest)?;
+  let file_name = dest
+    .file_name()
+    .map(|name| name.to_string_lossy().to_string())
+    .unwrap_or_else(|| "file.json".to_string());
+  let temp_path = dest
+    .parent()
+    .unwrap_or(to)
+    .join(format!("{file_name}.tmp"));
+  fs::copy(&source, &temp_path).map_err(|error| format!("复制失败 {relative}: {error}"))?;
+  fs::rename(&temp_path, &dest).map_err(|error| format!("写入失败 {relative}: {error}"))?;
+  Ok(())
+}
+
 fn copy_live_tree(from: &Path, to: &Path, files: &HashMap<String, String>) -> Result<(), String> {
-  fs::create_dir_all(to).map_err(|error| format!("failed to create cloud project dir: {error}"))?;
-  for relative in files.keys() {
-    let source = resolve_project_relative(from, relative)?;
-    if !source.exists() {
-      continue;
-    }
-    let dest = to.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
-    ensure_parent_dir(&dest)?;
-    let file_name = dest
-      .file_name()
-      .map(|name| name.to_string_lossy().to_string())
-      .unwrap_or_else(|| "file.json".to_string());
-    let temp_path = dest
-      .parent()
-      .unwrap_or(to)
-      .join(format!("{file_name}.tmp"));
-    fs::copy(&source, &temp_path).map_err(|error| format!("failed to copy {relative}: {error}"))?;
-    fs::rename(&temp_path, &dest).map_err(|error| format!("failed to finalize {relative}: {error}"))?;
+  fs::create_dir_all(to).map_err(|error| format!("无法创建同步目标目录: {error}"))?;
+  for relative in ordered_live_relative_paths(files) {
+    copy_one_live_file(from, to, &relative)?;
   }
   Ok(())
 }
 
 fn delete_extra_live_files(target: &Path, keep: &HashMap<String, String>) -> Result<(), String> {
   let existing = collect_live_file_hashes(target)?;
-  for relative in existing.keys() {
-    if keep.contains_key(relative) {
-      continue;
-    }
+  let mut extras: Vec<String> = existing
+    .keys()
+    .filter(|relative| !keep.contains_key(*relative))
+    .cloned()
+    .collect();
+  extras.sort();
+  for relative in extras {
     let path = target.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
     if path.exists() {
-      fs::remove_file(&path).map_err(|error| format!("failed to remove extra {relative}: {error}"))?;
+      fs::remove_file(&path).map_err(|error| format!("删除多余文件失败 {relative}: {error}"))?;
     }
+  }
+  Ok(())
+}
+
+/// Ensure a live project tree can be opened: valid catalog JSON, declared scenes
+/// exist and parse, and no required path is missing from `expected` hashes.
+fn validate_openable_live_project(
+  project_dir: &Path,
+  expected: &HashMap<String, String>,
+) -> Result<(), String> {
+  if !expected.contains_key("project.json") {
+    return Err("作品缺少 project.json，无法同步".to_string());
+  }
+  let meta_path = project_json_path(project_dir);
+  if !meta_path.exists() {
+    return Err("作品缺少 project.json，无法同步".to_string());
+  }
+  let meta_raw = fs::read_to_string(&meta_path)
+    .map_err(|error| format!("无法读取 project.json: {error}"))?;
+  let meta: Value = serde_json::from_str(&meta_raw)
+    .map_err(|error| format!("project.json 不是合法 JSON: {error}"))?;
+  let format_version = meta.get("formatVersion").and_then(|v| v.as_u64());
+  if format_version != Some(2) {
+    return Err("云端/源作品格式版本不受支持或不是分 Scene 结构，请先用本应用打开并保存一次".to_string());
+  }
+  let scripts = meta
+    .get("scripts")
+    .and_then(|v| v.as_array())
+    .ok_or_else(|| "project.json 缺少 scripts 列表".to_string())?;
+
+  let mut declared: Vec<String> = Vec::new();
+  for script in scripts {
+    let script_id = script
+      .get("id")
+      .and_then(|v| v.as_str())
+      .ok_or_else(|| "project.json 中存在无效 Script".to_string())?;
+    let scene_ids = script
+      .get("sceneIds")
+      .and_then(|v| v.as_array())
+      .ok_or_else(|| format!("Script「{script_id}」缺少 sceneIds"))?;
+    for scene_id_value in scene_ids {
+      let scene_id = scene_id_value
+        .as_str()
+        .ok_or_else(|| format!("Script「{script_id}」含有无效 sceneId"))?;
+      let relative = format!("scripts/{script_id}/scenes/{scene_id}.json");
+      declared.push(relative);
+    }
+  }
+
+  for relative in &declared {
+    if !expected.contains_key(relative) {
+      return Err(format!("作品结构声明了 Scene，但文件缺失或不完整: {relative}"));
+    }
+    let path = resolve_project_relative(project_dir, relative)?;
+    if !path.exists() {
+      return Err(format!("Scene 文件不存在: {relative}"));
+    }
+    let raw = fs::read_to_string(&path)
+      .map_err(|error| format!("无法读取 Scene「{relative}」: {error}"))?;
+    let scene: Value = serde_json::from_str(&raw)
+      .map_err(|error| format!("Scene「{relative}」不是合法 JSON: {error}"))?;
+    if scene.get("id").and_then(|v| v.as_str()).is_none() {
+      return Err(format!("Scene「{relative}」缺少 id"));
+    }
+    if scene.get("title").and_then(|v| v.as_str()).is_none() {
+      return Err(format!("Scene「{relative}」缺少 title"));
+    }
+    if !scene.get("blocks").map(|v| v.is_array()).unwrap_or(false) {
+      return Err(format!("Scene「{relative}」缺少 blocks 数组"));
+    }
+  }
+
+  // expected may include only live files from walk; every declared scene must be present.
+  // Extra scene files not in catalog are allowed (orphans) but will be pruned on sync.
+  Ok(())
+}
+
+/// Copy live files into `to`, prune extras, then require on-disk hashes to match `expected`.
+fn apply_live_tree_from(
+  from: &Path,
+  to: &Path,
+  expected: &HashMap<String, String>,
+) -> Result<(), String> {
+  copy_live_tree(from, to, expected)?;
+  delete_extra_live_files(to, expected)?;
+  let after = collect_live_file_hashes(to)?;
+  if !maps_equal(&after, expected) {
+    return Err("同步后文件校验失败（可能不完整或被其它程序改写），未标记为同步成功".to_string());
   }
   Ok(())
 }
@@ -818,8 +926,8 @@ fn push_project_to_cloud(
     return Err(format!("sync_conflict:{status}"));
   }
 
-  copy_live_tree(&project_dir, &cloud_dir, &local_files)?;
-  delete_extra_live_files(&cloud_dir, &local_files)?;
+  validate_openable_live_project(&project_dir, &local_files)?;
+  apply_live_tree_from(&project_dir, &cloud_dir, &local_files)?;
   let transferred = local_files.len();
   let cloud_after = collect_live_file_hashes(&cloud_dir)?;
 
@@ -873,14 +981,16 @@ fn pull_project_from_cloud(
     return Err(format!("sync_conflict:{status}"));
   }
 
+  // Reject incomplete/corrupt cloud mirrors before touching local live files.
+  validate_openable_live_project(&cloud_dir, &cloud_files)?;
+
   // Snapshot existing local live files before overwrite.
-  for relative in local_files.keys() {
-    let data_path = resolve_project_relative(&project_dir, relative)?;
-    let _ = snapshot_file_before_save(&project_dir, &data_path, relative);
+  for relative in ordered_live_relative_paths(&local_files) {
+    let data_path = resolve_project_relative(&project_dir, &relative)?;
+    let _ = snapshot_file_before_save(&project_dir, &data_path, &relative);
   }
 
-  copy_live_tree(&cloud_dir, &project_dir, &cloud_files)?;
-  delete_extra_live_files(&project_dir, &cloud_files)?;
+  apply_live_tree_from(&cloud_dir, &project_dir, &cloud_files)?;
   let transferred = cloud_files.len();
   let local_after = collect_live_file_hashes(&project_dir)?;
 
@@ -1381,6 +1491,8 @@ struct ProjectBackupEntry {
 #[serde(rename_all = "camelCase")]
 struct RestoreBackupResult {
   restored_relative_path: String,
+  /// True when a restored scene was re-linked into project.json sceneIds.
+  catalog_updated: bool,
 }
 
 fn parse_legacy_flat_backup_original_path(file_name: &str) -> Option<String> {
@@ -1458,6 +1570,98 @@ fn read_project_backup(project_path: String, file_name: String) -> Result<String
   fs::read_to_string(path).map_err(|error| format!("failed to read backup: {error}"))
 }
 
+fn parse_scene_relative_path(relative: &str) -> Option<(String, String)> {
+  let normalized = relative.replace('\\', "/");
+  let parts: Vec<&str> = normalized.split('/').collect();
+  // scripts / {scriptId} / scenes / {sceneId}.json
+  if parts.len() != 4 || parts[0] != "scripts" || parts[2] != "scenes" {
+    return None;
+  }
+  let script_id = parts[1];
+  let file = parts[3];
+  if !file.ends_with(".json") || !is_clean_scene_file_name(file) {
+    return None;
+  }
+  let scene_id = file.trim_end_matches(".json");
+  if script_id.is_empty() || scene_id.is_empty() {
+    return None;
+  }
+  Some((script_id.to_string(), scene_id.to_string()))
+}
+
+/// Ensure a restored scene file is referenced from project.json so loadSplitProject sees it.
+fn reattach_scene_to_catalog(
+  project_path: &str,
+  script_id: &str,
+  scene_id: &str,
+  scene_title: &str,
+) -> Result<bool, String> {
+  let meta_path = project_json_path(Path::new(project_path));
+  if !meta_path.exists() {
+    return Err("无法把 Scene 接回结构：缺少 project.json".to_string());
+  }
+  let meta_raw = fs::read_to_string(&meta_path)
+    .map_err(|error| format!("无法读取 project.json: {error}"))?;
+  let mut meta: Value = serde_json::from_str(&meta_raw)
+    .map_err(|error| format!("project.json 不是合法 JSON: {error}"))?;
+
+  let scripts = meta
+    .get_mut("scripts")
+    .and_then(|v| v.as_array_mut())
+    .ok_or_else(|| "project.json 缺少 scripts".to_string())?;
+
+  let mut updated = false;
+  let mut found_script = false;
+  for script in scripts.iter_mut() {
+    let id = script.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if id != script_id {
+      continue;
+    }
+    found_script = true;
+    let scene_ids = script
+      .get_mut("sceneIds")
+      .and_then(|v| v.as_array_mut())
+      .ok_or_else(|| format!("Script「{script_id}」缺少 sceneIds"))?;
+    let already = scene_ids
+      .iter()
+      .any(|value| value.as_str() == Some(scene_id));
+    if !already {
+      scene_ids.push(Value::String(scene_id.to_string()));
+      updated = true;
+    }
+    break;
+  }
+
+  if !found_script {
+    let title = if scene_title.trim().is_empty() {
+      format!("已恢复 · {script_id}")
+    } else {
+      format!("已恢复 · {scene_title}")
+    };
+    scripts.push(serde_json::json!({
+      "id": script_id,
+      "title": title,
+      "sceneIds": [scene_id],
+    }));
+    updated = true;
+  }
+
+  if !updated {
+    return Ok(false);
+  }
+
+  let next = serde_json::to_string_pretty(&meta)
+    .map_err(|error| format!("无法序列化 project.json: {error}"))?;
+  write_project_file(
+    project_path.to_string(),
+    "project.json".to_string(),
+    next,
+    None,
+    Some(true),
+  )?;
+  Ok(true)
+}
+
 #[tauri::command]
 fn restore_project_backup(
   project_path: String,
@@ -1494,14 +1698,33 @@ fn restore_project_backup(
   };
 
   write_project_file(
-    project_path,
+    project_path.clone(),
     target_relative.clone(),
-    content,
+    content.clone(),
     None,
     Some(!as_copy),
   )?;
+
+  let mut catalog_updated = false;
+  if !as_copy {
+    if let Some((script_id, scene_id)) = parse_scene_relative_path(&target_relative) {
+      let scene_title = serde_json::from_str::<Value>(&content)
+        .ok()
+        .and_then(|value| {
+          value
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+        })
+        .unwrap_or_default();
+      catalog_updated =
+        reattach_scene_to_catalog(&project_path, &script_id, &scene_id, &scene_title)?;
+    }
+  }
+
   Ok(RestoreBackupResult {
     restored_relative_path: target_relative,
+    catalog_updated,
   })
 }
 
@@ -1586,4 +1809,148 @@ pub fn run() {
     })
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod sync_safety_tests {
+  use super::*;
+  use std::time::{SystemTime, UNIX_EPOCH};
+
+  fn temp_dir(label: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .map(|d| d.as_nanos())
+      .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("lightscript-{label}-{nanos}"));
+    fs::create_dir_all(&dir).expect("temp dir");
+    dir
+  }
+
+  fn write_file(path: &Path, contents: &str) {
+    if let Some(parent) = path.parent() {
+      fs::create_dir_all(parent).expect("parent");
+    }
+    fs::write(path, contents).expect("write");
+  }
+
+  fn sample_project(root: &Path, with_scene_b: bool) {
+    let meta = if with_scene_b {
+      r#"{
+  "formatVersion": 2,
+  "id": "p1",
+  "title": "Test",
+  "worldbuilding": "",
+  "characters": [],
+  "settings": { "writingMode": "characterDialogue" },
+  "scripts": [{ "id": "s1", "title": "Script", "sceneIds": ["a", "b"] }]
+}"#
+    } else {
+      r#"{
+  "formatVersion": 2,
+  "id": "p1",
+  "title": "Test",
+  "worldbuilding": "",
+  "characters": [],
+  "settings": { "writingMode": "characterDialogue" },
+  "scripts": [{ "id": "s1", "title": "Script", "sceneIds": ["a", "b"] }]
+}"#
+    };
+    write_file(&root.join("project.json"), meta);
+    write_file(
+      &root.join("scripts/s1/scenes/a.json"),
+      r#"{"id":"a","title":"A","location":"","outline":"","characterIds":[],"blocks":[]}"#,
+    );
+    if with_scene_b {
+      write_file(
+        &root.join("scripts/s1/scenes/b.json"),
+        r#"{"id":"b","title":"B","location":"","outline":"","characterIds":[],"blocks":[]}"#,
+      );
+    }
+  }
+
+  #[test]
+  fn ordered_paths_put_project_json_last() {
+    let mut files = HashMap::new();
+    files.insert("project.json".to_string(), "1".to_string());
+    files.insert("scripts/s1/scenes/z.json".to_string(), "2".to_string());
+    files.insert("scripts/s1/scenes/a.json".to_string(), "3".to_string());
+    let ordered = ordered_live_relative_paths(&files);
+    assert_eq!(ordered.last().map(String::as_str), Some("project.json"));
+    assert!(ordered[0].ends_with("a.json") || ordered[0].ends_with("z.json"));
+  }
+
+  #[test]
+  fn validate_rejects_missing_declared_scene() {
+    let root = temp_dir("missing-scene");
+    sample_project(&root, false);
+    let hashes = collect_live_file_hashes(&root).expect("hashes");
+    let err = validate_openable_live_project(&root, &hashes).expect_err("should fail");
+    assert!(err.contains("缺失") || err.contains("不存在"), "{err}");
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn validate_accepts_complete_project() {
+    let root = temp_dir("complete");
+    sample_project(&root, true);
+    let hashes = collect_live_file_hashes(&root).expect("hashes");
+    validate_openable_live_project(&root, &hashes).expect("ok");
+    let _ = fs::remove_dir_all(&root);
+  }
+
+  #[test]
+  fn apply_live_tree_copies_and_prunes() {
+    let src = temp_dir("src");
+    let dst = temp_dir("dst");
+    sample_project(&src, true);
+    write_file(
+      &dst.join("scripts/s1/scenes/orphan.json"),
+      r#"{"id":"orphan","title":"O","location":"","outline":"","characterIds":[],"blocks":[]}"#,
+    );
+    write_file(
+      &dst.join("project.json"),
+      r#"{"formatVersion":2,"id":"old","title":"Old","worldbuilding":"","characters":[],"settings":{"writingMode":"characterDialogue"},"scripts":[{"id":"s1","title":"S","sceneIds":["orphan"]}]}"#,
+    );
+    let expected = collect_live_file_hashes(&src).expect("src hashes");
+    apply_live_tree_from(&src, &dst, &expected).expect("apply");
+    assert!(!dst.join("scripts/s1/scenes/orphan.json").exists());
+    assert!(dst.join("scripts/s1/scenes/a.json").exists());
+    assert!(dst.join("scripts/s1/scenes/b.json").exists());
+    let after = collect_live_file_hashes(&dst).expect("dst");
+    assert!(maps_equal(&after, &expected));
+    let _ = fs::remove_dir_all(&src);
+    let _ = fs::remove_dir_all(&dst);
+  }
+
+  #[test]
+  fn restore_reattaches_orphan_scene_to_catalog() {
+    let root = temp_dir("reattach");
+    sample_project(&root, true);
+    // Drop scene b from catalog but keep file as if deleted from structure only... 
+    // Actually simulate deleted scene: remove from catalog and delete file, keep content for restore path.
+    let scene_b = r#"{"id":"b","title":"B","location":"","outline":"","characterIds":[],"blocks":[{"type":"narrative","id":"n1","text":"hi"}]}"#;
+    write_file(
+      &root.join("project.json"),
+      r#"{
+  "formatVersion": 2,
+  "id": "p1",
+  "title": "Test",
+  "worldbuilding": "",
+  "characters": [],
+  "settings": { "writingMode": "characterDialogue" },
+  "scripts": [{ "id": "s1", "title": "Script", "sceneIds": ["a"] }]
+}"#,
+    );
+    let _ = fs::remove_file(root.join("scripts/s1/scenes/b.json"));
+    let updated = reattach_scene_to_catalog(root.to_str().unwrap(), "s1", "b", "B").expect("reattach");
+    assert!(updated);
+    write_file(&root.join("scripts/s1/scenes/b.json"), scene_b);
+    let hashes = collect_live_file_hashes(&root).expect("hashes");
+    validate_openable_live_project(&root, &hashes).expect("openable after reattach");
+    let meta: Value =
+      serde_json::from_str(&fs::read_to_string(root.join("project.json")).unwrap()).unwrap();
+    let ids = meta["scripts"][0]["sceneIds"].as_array().unwrap();
+    assert!(ids.iter().any(|v| v.as_str() == Some("b")));
+    let _ = fs::remove_dir_all(&root);
+  }
 }

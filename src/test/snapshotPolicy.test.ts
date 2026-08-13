@@ -125,24 +125,47 @@ describe("snapshotPolicy", () => {
     ).toBe(true);
   });
 
-  test("project meta uses byte delta", () => {
+  test("equal-length rewrite can snapshot after idle", () => {
+    const project = createDefaultProject();
+    const script = project.scripts[0];
+    const scene = script.scenes[0];
+    scene.blocks = [{ id: "1", type: "narrative", text: "今天下雨了。" }];
+    const path = sceneRelativePath(script.id, scene.id);
     const book: SnapshotBook = {};
-    const small = "{\"title\":\"a\"}";
-    recordSnapshotTaken(book, PROJECT_META_FILE, small, 1_000);
+    recordSnapshotTaken(book, path, JSON.stringify({ blocks: scene.blocks }), 1_000);
+
+    scene.blocks = [{ id: "1", type: "narrative", text: "今天放晴了。" }];
+    const next = JSON.stringify({ blocks: scene.blocks });
     expect(
       shouldTakeFileSnapshot({
-        relativePath: PROJECT_META_FILE,
-        nextPayload: small + "x".repeat(50),
-        previous: book[PROJECT_META_FILE],
-        nowMs: 1_000 + 1_000,
+        relativePath: path,
+        nextPayload: next,
+        previous: book[path],
+        nowMs: 1_000 + 30_000,
       }),
     ).toBe(false);
     expect(
       shouldTakeFileSnapshot({
+        relativePath: path,
+        nextPayload: next,
+        previous: book[path],
+        nowMs: 1_000 + SNAPSHOT_IDLE_MS,
+      }),
+    ).toBe(true);
+  });
+
+  test("project meta equal-length rewrite can snapshot after idle", () => {
+    const book: SnapshotBook = {};
+    const before = '{"title":"Scene 1","x":true}';
+    const after = '{"title":"Scene 2","x":true}';
+    expect(before.length).toBe(after.length);
+    recordSnapshotTaken(book, PROJECT_META_FILE, before, 1_000);
+    expect(
+      shouldTakeFileSnapshot({
         relativePath: PROJECT_META_FILE,
-        nextPayload: small + "x".repeat(250),
+        nextPayload: after,
         previous: book[PROJECT_META_FILE],
-        nowMs: 1_000 + 1_000,
+        nowMs: 1_000 + SNAPSHOT_IDLE_MS,
       }),
     ).toBe(true);
   });

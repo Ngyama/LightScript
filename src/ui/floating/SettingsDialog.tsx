@@ -246,6 +246,9 @@ export function SettingsDialog({
             />
             离开作品时自动尝试同步到云端
           </label>
+          <p className="settings-hint">
+            若冲突、离线或目录不可用，离开后会显示错误提示（不会静默当作已同步）。
+          </p>
           {pathMessage && <p className="settings-hint">{pathMessage}</p>}
           {pathError && (
             <p className="settings-hint is-error" role="alert">

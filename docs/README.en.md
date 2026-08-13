@@ -8,6 +8,8 @@
 
 A local-first desktop editor for light novels, visual novels, and scripts (Windows · Tauri 2).
 
+> **UI language:** the application UI is currently **Simplified Chinese only**. English and Japanese READMEs document the product; they do not imply a localized UI yet.
+
 Manuscripts are stored in folders designated by the user. LightScript does not upload writing content to its own servers. An optional **cloud mirror** folder (for example Google Drive) may be bound for infrequent cross-device synchronization.
 
 ## Download & install
@@ -34,13 +36,19 @@ Unsigned installers may trigger Windows SmartScreen; this is expected for invite
 - On disk: `project.json` (catalog and characters) + `scripts/<id>/scenes/<id>.json` (scene bodies)
 - Snapshots are stored under `.lightscript/backups/` within the project (not synchronized to the cloud by default)
 - Last-opened Script / Scene is recorded in app-local settings, not in the project folder
+- Restoring a **Scene** backup writes the body back and, if it was removed from the catalog, re-attaches it to the matching Script (creating a Script entry if needed). **Save as copy** writes an extra file only and does not add it to the project structure.
+- Deleting a Script / Scene asks for confirmation. Bodies are removed from the project; checkpoints may remain under `.lightscript/backups`.
+- With auto-sync on leave enabled, LightScript tries to finish saving before push. Failures (conflict, offline, etc.) surface an error instead of failing silently.
+- Snapshot policy: unchanged content is never re-snapshotted just because time passed; equal-length rewrites can still take an idle checkpoint after about three minutes.
 
 ## Synchronization guidance
 
 1. The **local library** is the sole workspace (autosave, undo, and snapshots apply here).
 2. The **cloud mirror** is an optional replica; do not point the active local library at a Drive folder that is under continuous sync.
 3. Recommended flow: complete editing on device A, then **Sync to cloud**; on device B, **Pull from cloud** before continuing.
-4. When local and cloud versions diverge, the application presents a choice among: adopt the cloud version, retain the local version, or keep both.
+4. When local and cloud versions diverge, Sync offers **Use cloud (overwrite local)** or **Keep local (overwrite cloud)** (or Cancel). **Keep both** applies only to the separate dialog shown when files change on disk outside the app—not to cloud-mirror Sync itself.
+5. **Before pull**, LightScript checks that the cloud project is complete and openable (`project.json` plus every declared scene file, parseable). Incomplete or corrupt mirrors are rejected so a bad copy cannot overwrite a good local tree.
+6. Transfers write scene bodies before `project.json`, then verify fingerprints. A failed verification is **not** recorded as a successful sync. An interrupted transfer may still leave a partial tree; treat the local library as source of truth and sync again.
 
 ## Writing UI & block interactions
 

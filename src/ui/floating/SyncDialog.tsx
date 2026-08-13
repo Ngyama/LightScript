@@ -108,7 +108,7 @@ export function SyncDialog({
           同步「{projectName}」
         </h2>
         <p className="modal-dialog-message">
-          本地作品库是正在编辑的地方；云端镜像用于低频备份与多设备接力。快照不会上传。
+          本地作品库是正在编辑的地方；云端镜像用于低频备份与多设备接力。快照不会上传。拉取前会检查云端作品是否完整可打开；同步失败时不会标记为已成功。
         </p>
         {inspect ? (
           <p className="modal-dialog-message">
