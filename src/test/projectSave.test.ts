@@ -1,98 +1,43 @@
 import { describe, expect, test } from "vitest";
-import { createDefaultProject } from "../domain/model";
-import {
-  isExternalUpdateSaveError,
-  planProjectSave,
-  projectSavePayload,
-} from "../domain/projectSave";
-import { withLastOpenedSettings } from "../domain/selection";
+import { isExternalUpdateSaveError, planSingleFileSave } from "../domain/projectSave";
 
-describe("planProjectSave", () => {
-  test("skips write when payload matches the saved snapshot", () => {
-    const project = createDefaultProject();
-    const scriptId = project.scripts[0].id;
-    const sceneId = project.scripts[0].scenes[0].id;
-    const savedPayload = projectSavePayload(project, scriptId, sceneId);
-
-    const plan = planProjectSave({
-      savedPayload,
-      project,
-      scriptId,
-      sceneId,
-      baselineHash: "abc",
-      diskHash: "abc",
+describe("planSingleFileSave", () => {
+  test("skips clean payloads", () => {
+    const plan = planSingleFileSave({
+      relativePath: "project.json",
+      savedPayload: "{}",
+      nextPayload: "{}",
+      baselineHash: "a",
+      diskHash: "a",
     });
-
     expect(plan.action).toBe("skip-clean");
   });
 
-  test("skips write when disk hash drifted from baseline", () => {
-    const project = createDefaultProject();
-    const scriptId = project.scripts[0].id;
-    const sceneId = project.scripts[0].scenes[0].id;
-    const savedPayload = projectSavePayload(project, scriptId, sceneId);
-    const edited = {
-      ...project,
-      title: "Edited title",
-    };
-
-    const plan = planProjectSave({
-      savedPayload,
-      project: edited,
-      scriptId,
-      sceneId,
-      baselineHash: "open-hash",
-      diskHash: "drive-hash",
+  test("detects external drift", () => {
+    const plan = planSingleFileSave({
+      relativePath: "project.json",
+      savedPayload: "{}",
+      nextPayload: "{ }",
+      baselineHash: "a",
+      diskHash: "b",
     });
-
     expect(plan.action).toBe("skip-external");
   });
 
-  test("writes dirty payload with expected baseline hash", () => {
-    const project = createDefaultProject();
-    const scriptId = project.scripts[0].id;
-    const sceneId = project.scripts[0].scenes[0].id;
-    const savedPayload = projectSavePayload(project, scriptId, sceneId);
-    const edited = withLastOpenedSettings(
-      { ...project, title: "Edited title" },
-      scriptId,
-      sceneId,
-    );
-
-    const plan = planProjectSave({
-      savedPayload,
-      project: edited,
-      scriptId,
-      sceneId,
-      baselineHash: "open-hash",
-      diskHash: "open-hash",
+  test("writes with expected hash", () => {
+    const plan = planSingleFileSave({
+      relativePath: "project.json",
+      savedPayload: "{}",
+      nextPayload: "{ }",
+      baselineHash: "a",
+      diskHash: "a",
     });
-
     expect(plan).toEqual({
       action: "write",
-      payload: projectSavePayload(edited, scriptId, sceneId),
-      expectedHash: "open-hash",
+      relativePath: "project.json",
+      payload: "{ }",
+      expectedHash: "a",
     });
-  });
-
-  test("treats missing saved snapshot as dirty and allows write", () => {
-    const project = createDefaultProject();
-    const scriptId = project.scripts[0].id;
-    const sceneId = project.scripts[0].scenes[0].id;
-
-    const plan = planProjectSave({
-      savedPayload: null,
-      project,
-      scriptId,
-      sceneId,
-      baselineHash: null,
-      diskHash: null,
-    });
-
-    expect(plan.action).toBe("write");
-    if (plan.action === "write") {
-      expect(plan.expectedHash).toBeNull();
-    }
   });
 });
 

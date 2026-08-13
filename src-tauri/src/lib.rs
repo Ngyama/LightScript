@@ -2,16 +2,26 @@ use docx_rs::{Docx, Paragraph, Run};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use tauri::Manager;
 use tauri::{LogicalSize, Size};
 
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectLastOpened {
+  last_script_id: Option<String>,
+  last_scene_id: Option<String>,
+}
+
 #[derive(Default, Deserialize, Serialize)]
 struct AppSettings {
   repo_path: Option<String>,
+  #[serde(default)]
+  projects: HashMap<String, ProjectLastOpened>,
 }
 
 #[derive(Serialize)]
@@ -156,6 +166,108 @@ fn project_json_path(project_path: &Path) -> PathBuf {
   project_path.join("project.json")
 }
 
+const MAX_PROJECT_SNAPSHOTS: usize = 10;
+const SNAPSHOT_DIR: &str = ".lightscript/backups";
+
+fn snapshot_timestamp() -> String {
+  use std::time::{SystemTime, UNIX_EPOCH};
+  let duration = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap_or_default();
+  format!("{}-{:03}", duration.as_secs(), duration.subsec_millis())
+}
+
+fn is_snapshot_file_name(name: &str) -> bool {
+  name.starts_with("project-") && name.ends_with(".json")
+}
+
+fn normalize_relative_path(relative_path: &str) -> Result<PathBuf, String> {
+  let trimmed = relative_path.trim().replace('\\', "/");
+  if trimmed.is_empty() {
+    return Err("relative path cannot be empty".to_string());
+  }
+  let path = PathBuf::from(&trimmed);
+  if path.is_absolute() {
+    return Err("relative path must not be absolute".to_string());
+  }
+  for component in path.components() {
+    match component {
+      Component::Normal(_) => {}
+      Component::CurDir => {}
+      _ => {
+        return Err("relative path must stay inside the project directory".to_string());
+      }
+    }
+  }
+  Ok(PathBuf::from(trimmed))
+}
+
+fn resolve_project_relative(project_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
+  let relative = normalize_relative_path(relative_path)?;
+  let joined = project_dir.join(&relative);
+  let canonical_dir = fs::canonicalize(project_dir)
+    .map_err(|error| format!("failed to canonicalize project path: {error}"))?;
+  if joined.exists() {
+    let canonical_file = fs::canonicalize(&joined)
+      .map_err(|error| format!("failed to canonicalize project file: {error}"))?;
+    if !canonical_file.starts_with(&canonical_dir) {
+      return Err("relative path must stay inside the project directory".to_string());
+    }
+    return Ok(joined);
+  }
+  // Parent must exist inside project for new files.
+  if let Some(parent) = joined.parent() {
+    if parent.exists() {
+      let canonical_parent = fs::canonicalize(parent)
+        .map_err(|error| format!("failed to canonicalize parent path: {error}"))?;
+      if !canonical_parent.starts_with(&canonical_dir) {
+        return Err("relative path must stay inside the project directory".to_string());
+      }
+    } else if parent != project_dir && !parent.starts_with(project_dir) {
+      return Err("relative path must stay inside the project directory".to_string());
+    }
+  }
+  Ok(joined)
+}
+
+fn snapshot_file_before_save(project_dir: &Path, data_path: &Path, relative_path: &str) -> Result<(), String> {
+  if !data_path.exists() {
+    return Ok(());
+  }
+  let backup_dir = project_dir.join(SNAPSHOT_DIR);
+  fs::create_dir_all(&backup_dir).map_err(|error| format!("failed to create snapshot dir: {error}"))?;
+  let safe_name = relative_path.replace(['/', '\\'], "__");
+  let backup_path = backup_dir.join(format!("{safe_name}-{}.bak", snapshot_timestamp()));
+  fs::copy(data_path, &backup_path).map_err(|error| format!("failed to write file snapshot: {error}"))?;
+  prune_file_snapshots(&backup_dir)
+}
+
+fn is_file_snapshot_name(name: &str) -> bool {
+  name.ends_with(".bak")
+}
+
+fn prune_file_snapshots(backup_dir: &Path) -> Result<(), String> {
+  let mut snapshots: Vec<PathBuf> = Vec::new();
+  for entry in fs::read_dir(backup_dir)
+    .map_err(|error| format!("failed to read snapshot dir: {error}"))?
+  {
+    let entry = entry.map_err(|error| format!("failed to read snapshot entry: {error}"))?;
+    if !entry.path().is_file() {
+      continue;
+    }
+    let name = entry.file_name().to_string_lossy().to_string();
+    if is_file_snapshot_name(&name) || is_snapshot_file_name(&name) {
+      snapshots.push(entry.path());
+    }
+  }
+  snapshots.sort();
+  while snapshots.len() > MAX_PROJECT_SNAPSHOTS {
+    let oldest = snapshots.remove(0);
+    fs::remove_file(&oldest).map_err(|error| format!("failed to prune snapshot: {error}"))?;
+  }
+  Ok(())
+}
+
 fn repo_path_from_settings(app: &tauri::AppHandle) -> Result<PathBuf, String> {
   let settings = read_settings(app)?;
   let raw = settings
@@ -222,8 +334,7 @@ fn list_projects(app: tauri::AppHandle) -> Result<Vec<ProjectSummary>, String> {
 }
 
 #[tauri::command]
-fn create_project(app: tauri::AppHandle, project_name: String, project_json: String) -> Result<ProjectSummary, String> {
-  serde_json::from_str::<Value>(&project_json).map_err(|error| format!("invalid project json: {error}"))?;
+fn create_project(app: tauri::AppHandle, project_name: String) -> Result<ProjectSummary, String> {
   let repo_path = repo_path_from_settings(&app)?;
   let display_name = project_name.trim();
   let dir_name = sanitize_name(display_name);
@@ -232,11 +343,6 @@ fn create_project(app: tauri::AppHandle, project_name: String, project_json: Str
     return Err("project directory already exists".to_string());
   }
   fs::create_dir_all(&project_dir).map_err(|error| format!("failed to create project directory: {error}"))?;
-
-  let data_path = project_json_path(&project_dir);
-  let temp_path = project_dir.join("project.json.tmp");
-  fs::write(&temp_path, project_json).map_err(|error| format!("failed to write temp project: {error}"))?;
-  fs::rename(&temp_path, &data_path).map_err(|error| format!("failed to finalize project write: {error}"))?;
 
   Ok(ProjectSummary {
     name: if display_name.is_empty() {
@@ -248,72 +354,31 @@ fn create_project(app: tauri::AppHandle, project_name: String, project_json: Str
   })
 }
 
-const MAX_PROJECT_SNAPSHOTS: usize = 10;
-const SNAPSHOT_DIR: &str = ".lightscript/backups";
-
-fn snapshot_timestamp() -> String {
-  use std::time::{SystemTime, UNIX_EPOCH};
-  let duration = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default();
-  format!("{}-{:03}", duration.as_secs(), duration.subsec_millis())
-}
-
-fn is_snapshot_file_name(name: &str) -> bool {
-  name.starts_with("project-") && name.ends_with(".json")
-}
-
-fn prune_project_snapshots(backup_dir: &Path) -> Result<(), String> {
-  let mut snapshots: Vec<PathBuf> = Vec::new();
-  for entry in fs::read_dir(backup_dir)
-    .map_err(|error| format!("failed to read snapshot dir: {error}"))?
-  {
-    let entry = entry.map_err(|error| format!("failed to read snapshot entry: {error}"))?;
-    if !entry.path().is_file() {
-      continue;
-    }
-    let name = entry.file_name().to_string_lossy().to_string();
-    if is_snapshot_file_name(&name) {
-      snapshots.push(entry.path());
-    }
-  }
-
-  snapshots.sort();
-  while snapshots.len() > MAX_PROJECT_SNAPSHOTS {
-    let oldest = snapshots.remove(0);
-    fs::remove_file(&oldest).map_err(|error| format!("failed to prune snapshot: {error}"))?;
-  }
-  Ok(())
-}
-
-fn snapshot_project_before_save(project_dir: &Path) -> Result<(), String> {
-  let data_path = project_json_path(project_dir);
-  if !data_path.exists() {
-    return Ok(());
-  }
-
-  let backup_dir = project_dir.join(SNAPSHOT_DIR);
-  fs::create_dir_all(&backup_dir).map_err(|error| format!("failed to create snapshot dir: {error}"))?;
-
-  let backup_path = backup_dir.join(format!("project-{}.json", snapshot_timestamp()));
-  fs::copy(&data_path, &backup_path).map_err(|error| format!("failed to write project snapshot: {error}"))?;
-  prune_project_snapshots(&backup_dir)
-}
-
 #[tauri::command]
 fn save_project_to_path(
   project_path: String,
   project_json: String,
   expected_hash: Option<String>,
 ) -> Result<ProjectMeta, String> {
-  serde_json::from_str::<Value>(&project_json).map_err(|error| format!("invalid project json: {error}"))?;
-  let project_dir = PathBuf::from(project_path);
+  write_project_file(project_path, "project.json".to_string(), project_json, expected_hash)
+}
+
+#[tauri::command]
+fn write_project_file(
+  project_path: String,
+  relative_path: String,
+  contents: String,
+  expected_hash: Option<String>,
+) -> Result<ProjectMeta, String> {
+  if relative_path.replace('\\', "/").ends_with(".json") {
+    serde_json::from_str::<Value>(&contents)
+      .map_err(|error| format!("invalid json: {error}"))?;
+  }
+  let project_dir = PathBuf::from(&project_path);
   if !project_dir.exists() || !project_dir.is_dir() {
     return Err("project path does not exist or is not a directory".to_string());
   }
-  let data_path = project_json_path(&project_dir);
-  // Compare-and-swap: refuse to overwrite when another process (e.g. Google Drive)
-  // changed project.json since the caller last observed it.
+  let data_path = resolve_project_relative(&project_dir, &relative_path)?;
   if let Some(expected) = expected_hash.as_deref() {
     if data_path.exists() {
       let current = compute_project_meta(&data_path)?;
@@ -322,33 +387,100 @@ fn save_project_to_path(
       }
     }
   }
-  snapshot_project_before_save(&project_dir)?;
-  let temp_path = project_dir.join("project.json.tmp");
-  fs::write(&temp_path, project_json).map_err(|error| format!("failed to write temp project: {error}"))?;
-  fs::rename(&temp_path, &data_path).map_err(|error| format!("failed to finalize project write: {error}"))?;
+  snapshot_file_before_save(&project_dir, &data_path, &relative_path)?;
+  ensure_parent_dir(&data_path)?;
+  let file_name = data_path
+    .file_name()
+    .map(|name| name.to_string_lossy().to_string())
+    .unwrap_or_else(|| "file.json".to_string());
+  let temp_path = data_path
+    .parent()
+    .unwrap_or(&project_dir)
+    .join(format!("{file_name}.tmp"));
+  fs::write(&temp_path, contents).map_err(|error| format!("failed to write temp file: {error}"))?;
+  fs::rename(&temp_path, &data_path).map_err(|error| format!("failed to finalize file write: {error}"))?;
   compute_project_meta(&data_path)
 }
 
 #[tauri::command]
-fn get_project_meta(project_path: String) -> Result<Option<ProjectMeta>, String> {
-  let data_path = project_json_path(&PathBuf::from(project_path));
+fn read_project_file(project_path: String, relative_path: String) -> Result<String, String> {
+  let project_dir = PathBuf::from(project_path);
+  if !project_dir.exists() || !project_dir.is_dir() {
+    return Err("project path does not exist or is not a directory".to_string());
+  }
+  let data_path = resolve_project_relative(&project_dir, &relative_path)?;
+  if !data_path.exists() || !data_path.is_file() {
+    return Err(format!("file not found: {relative_path}"));
+  }
+  fs::read_to_string(&data_path).map_err(|error| format!("failed to read file: {error}"))
+}
+
+#[tauri::command]
+fn get_project_file_meta(
+  project_path: String,
+  relative_path: String,
+) -> Result<Option<ProjectMeta>, String> {
+  let project_dir = PathBuf::from(project_path);
+  if !project_dir.exists() || !project_dir.is_dir() {
+    return Err("project path does not exist or is not a directory".to_string());
+  }
+  let data_path = resolve_project_relative(&project_dir, &relative_path)?;
   if !data_path.exists() {
     return Ok(None);
   }
   Ok(Some(compute_project_meta(&data_path)?))
 }
 
-/// A project directory only ever legitimately contains `project.json` (and a
-/// transient `project.json.tmp` mid-write). Cloud clients like Google Drive
-/// resolve a two-device edit conflict by keeping the loser as a sibling copy,
-/// e.g. `project (1).json` or `project (Name's conflicted copy 2024-01-01).json`.
-/// Any other `project*.json` is therefore treated as a conflict copy.
-fn is_conflict_copy_name(name: &str) -> bool {
-  if name.eq_ignore_ascii_case("project.json") {
+#[tauri::command]
+fn delete_project_file(
+  project_path: String,
+  relative_path: String,
+  expected_hash: Option<String>,
+) -> Result<(), String> {
+  let project_dir = PathBuf::from(project_path);
+  if !project_dir.exists() || !project_dir.is_dir() {
+    return Err("project path does not exist or is not a directory".to_string());
+  }
+  let data_path = resolve_project_relative(&project_dir, &relative_path)?;
+  if !data_path.exists() {
+    return Ok(());
+  }
+  if let Some(expected) = expected_hash.as_deref() {
+    let current = compute_project_meta(&data_path)?;
+    if current.hash != expected {
+      return Err("external_update".to_string());
+    }
+  }
+  snapshot_file_before_save(&project_dir, &data_path, &relative_path)?;
+  fs::remove_file(&data_path).map_err(|error| format!("failed to delete file: {error}"))?;
+  Ok(())
+}
+
+#[tauri::command]
+fn get_project_meta(project_path: String) -> Result<Option<ProjectMeta>, String> {
+  get_project_file_meta(project_path, "project.json".to_string())
+}
+
+/// Cloud clients like Google Drive keep losers as sibling copies,
+/// e.g. `project (1).json` or `scene-id (1).json`.
+fn is_conflict_copy_name(name: &str, canonical_stem: &str) -> bool {
+  if name.eq_ignore_ascii_case(&format!("{canonical_stem}.json")) {
     return false;
   }
   let lower = name.to_lowercase();
-  lower.starts_with("project") && lower.ends_with(".json")
+  let stem = canonical_stem.to_lowercase();
+  lower.starts_with(&stem) && lower.ends_with(".json")
+}
+
+fn is_clean_scene_file_name(name: &str) -> bool {
+  if !name.ends_with(".json") {
+    return false;
+  }
+  let stem = &name[..name.len() - 5];
+  !stem.is_empty()
+    && !stem.contains(' ')
+    && !stem.contains('(')
+    && !name.to_lowercase().contains("conflicted")
 }
 
 #[tauri::command]
@@ -358,20 +490,87 @@ fn list_conflict_copies(project_path: String) -> Result<Vec<String>, String> {
     return Err("project path does not exist or is not a directory".to_string());
   }
   let mut copies: Vec<String> = Vec::new();
+
   for entry in
     fs::read_dir(&project_dir).map_err(|error| format!("failed to read project dir: {error}"))?
   {
     let entry = entry.map_err(|error| format!("failed to read project entry: {error}"))?;
-    if !entry.path().is_file() {
+    let path = entry.path();
+    let name = entry.file_name().to_string_lossy().to_string();
+    if path.is_file() {
+      if is_conflict_copy_name(&name, "project") {
+        copies.push(name);
+      }
       continue;
     }
-    let name = entry.file_name().to_string_lossy().to_string();
-    if is_conflict_copy_name(&name) {
-      copies.push(name);
+    if !path.is_dir() || name == ".lightscript" {
+      continue;
     }
+    collect_scene_conflicts(&path, &name, &mut copies)?;
   }
+
   copies.sort();
   Ok(copies)
+}
+
+fn collect_scene_conflicts(dir: &Path, relative_prefix: &str, out: &mut Vec<String>) -> Result<(), String> {
+  for entry in fs::read_dir(dir).map_err(|error| format!("failed to read dir: {error}"))? {
+    let entry = entry.map_err(|error| format!("failed to read dir entry: {error}"))?;
+    let path = entry.path();
+    let name = entry.file_name().to_string_lossy().to_string();
+    let display_prefix = if relative_prefix.is_empty() {
+      name.clone()
+    } else {
+      format!("{relative_prefix}/{name}")
+    };
+    if path.is_dir() {
+      collect_scene_conflicts(&path, &display_prefix, out)?;
+      continue;
+    }
+    if !path.is_file() || !name.ends_with(".json") || name.ends_with(".tmp") {
+      continue;
+    }
+    let parent_name = path
+      .parent()
+      .and_then(|parent| parent.file_name())
+      .map(|value| value.to_string_lossy().to_string())
+      .unwrap_or_default();
+    if parent_name != "scenes" {
+      continue;
+    }
+    if is_clean_scene_file_name(&name) {
+      continue;
+    }
+    out.push(format!("{relative_prefix}/{name}"));
+  }
+  Ok(())
+}
+
+#[tauri::command]
+fn get_project_last_opened(
+  app: tauri::AppHandle,
+  project_path: String,
+) -> Result<Option<ProjectLastOpened>, String> {
+  let settings = read_settings(&app)?;
+  Ok(settings.projects.get(&project_path).cloned())
+}
+
+#[tauri::command]
+fn set_project_last_opened(
+  app: tauri::AppHandle,
+  project_path: String,
+  last_script_id: Option<String>,
+  last_scene_id: Option<String>,
+) -> Result<(), String> {
+  let mut settings = read_settings(&app)?;
+  settings.projects.insert(
+    project_path,
+    ProjectLastOpened {
+      last_script_id,
+      last_scene_id,
+    },
+  );
+  write_settings(&app, &settings)
 }
 
 #[tauri::command]
@@ -564,8 +763,14 @@ pub fn run() {
       create_project,
       delete_project,
       save_project_to_path,
+      write_project_file,
+      read_project_file,
+      get_project_file_meta,
+      delete_project_file,
       get_project_meta,
       list_conflict_copies,
+      get_project_last_opened,
+      set_project_last_opened,
       load_project_from_path,
       write_text_export,
       write_docx_export,

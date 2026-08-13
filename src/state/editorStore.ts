@@ -13,7 +13,10 @@ import {
   type WritingMode,
 } from "../domain/model";
 import { navigationTargetFromSearchMatch, type NavigationTarget } from "../domain/navigation";
-import { resolveLastOpenedSelection, withLastOpenedSettings } from "../domain/selection";
+import {
+  resolveLastOpenedSelection,
+  type LastOpened,
+} from "../domain/selection";
 import type { SearchMatch } from "../domain/searchProject";
 
 const randomId = (): string =>
@@ -35,7 +38,7 @@ type EditorState = {
   navigationTarget: NavigationTarget | null;
   isHydrated: boolean;
   setHydrated: (hydrated: boolean) => void;
-  hydrateProject: (project: Project) => void;
+  hydrateProject: (project: Project, lastOpened?: LastOpened | null) => void;
   updateProjectTitle: (title: string) => void;
   selectScript: (scriptId: string) => void;
   selectScene: (scriptId: string, sceneId: string) => void;
@@ -119,11 +122,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   navigationTarget: null,
   isHydrated: false,
   setHydrated: (hydrated) => set({ isHydrated: hydrated }),
-  hydrateProject: (project) => {
+  hydrateProject: (project, lastOpened) => {
     const validated = withInvariant(project);
-    const { scriptId, sceneId } = resolveLastOpenedSelection(validated);
+    const { scriptId, sceneId } = resolveLastOpenedSelection(validated, lastOpened);
     set({
-      project: validated,
+      project: {
+        ...validated,
+        settings: { writingMode: validated.settings.writingMode },
+      },
       selection: {
         projectId: validated.id,
         scriptId,
@@ -146,7 +152,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return state;
       }
       return {
-        project: withLastOpenedSettings(state.project, scriptId, undefined),
         selection: {
           projectId: state.project.id,
           scriptId,
@@ -156,7 +161,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   selectScene: (scriptId, sceneId) =>
     set((state) => ({
-      project: withLastOpenedSettings(state.project, scriptId, sceneId),
       selection: {
         projectId: state.project.id,
         scriptId,
@@ -179,7 +183,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ],
       });
       return {
-        project: withLastOpenedSettings(updated, newScriptId, newSceneId),
+        project: updated,
         selection: {
           projectId: state.project.id,
           scriptId: newScriptId,
@@ -215,7 +219,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return state;
       }
       return {
-        project: withLastOpenedSettings(updatedProject, scriptId, lastScene.id),
+        project: updatedProject,
         selection: {
           projectId: state.project.id,
           scriptId,
@@ -254,7 +258,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const fallbackScene = updatedScript?.scenes[0];
 
       return {
-        project: withLastOpenedSettings(updatedProject, scriptId, fallbackScene?.id),
+        project: updatedProject,
         selection: {
           projectId: state.project.id,
           scriptId,
@@ -290,11 +294,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const fallbackScript = nextScripts[fallbackIdx];
       const fallbackScene = fallbackScript?.scenes[0];
       return {
-        project: withLastOpenedSettings(
-          updatedProject,
-          fallbackScript?.id,
-          fallbackScene?.id,
-        ),
+        project: updatedProject,
         selection: {
           projectId: state.project.id,
           scriptId: fallbackScript?.id,
@@ -501,7 +501,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
   navigateToSearchMatch: (match) =>
     set((state) => ({
-      project: withLastOpenedSettings(state.project, match.scriptId, match.sceneId),
       selection: {
         projectId: state.project.id,
         scriptId: match.scriptId,

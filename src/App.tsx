@@ -5,23 +5,27 @@ import {
   createDefaultProject,
   findSceneInProject,
 } from "./domain/model";
+import { isExternalUpdateSaveError, planProjectFilesSave } from "./domain/projectSave";
 import {
-  isExternalUpdateSaveError,
-  planProjectSave,
-  projectSavePayload,
-} from "./domain/projectSave";
+  PROJECT_META_FILE,
+  projectFileSnapshot,
+  sceneRelativePath,
+  type ProjectFileSnapshot,
+} from "./domain/projectFormat";
 import { useEditorStore } from "./state/editorStore";
 import {
   createProject,
   deleteProject,
-  getProjectMeta,
-  getRepoPath,
+  deleteProjectFile,
+  getProjectFileMeta,
   listConflictCopies,
   listProjects,
-  loadProjectFromPath,
+  loadProjectBundle,
   pickDirectory,
-  saveProjectPayload,
+  getRepoPath,
+  setProjectLastOpened,
   setRepoPath,
+  writeProjectFile,
   type ProjectMeta,
   type ProjectSummary,
 } from "./storage/projectStorage";
@@ -91,60 +95,99 @@ export default function App() {
   // copy re-surfaces the banner even after a previous dismissal.
   const conflictKeyRef = useRef("");
 
-  // Last on-disk fingerprint we consider "ours". Auto-save refreshes it after
-  // writing so our own writes never look like an external change; the poller
-  // compares fresh reads against it to detect outside edits.
-  const baselineMetaRef = useRef<ProjectMeta | null>(null);
-  // Serialized payload from the last successful open/save. Used so an untouched
-  // editor session never rewrites project.json (which would poison Drive sync).
-  const savedPayloadRef = useRef<string | null>(null);
+  // Per-file fingerprints we consider "ours". Auto-save refreshes them after
+  // writing so our own writes never look like an external change.
+  const baselineHashesRef = useRef<Record<string, string>>({});
+  // Serialized payloads from the last successful open/save, keyed by relative path.
+  const savedSnapshotRef = useRef<ProjectFileSnapshot>({});
   // True while an auto-save write is in flight, so the poller doesn't mistake
   // our own half-written file for an external change.
   const isSavingRef = useRef(false);
 
-  const captureSavedSnapshot = useCallback(() => {
-    const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
-    savedPayloadRef.current = projectSavePayload(
-      currentProject,
-      currentSelection.scriptId,
-      currentSelection.sceneId,
-    );
+  const captureSavedSnapshot = useCallback((snapshot?: ProjectFileSnapshot, metas?: Record<string, ProjectMeta | null>) => {
+    const nextSnapshot = snapshot ?? projectFileSnapshot(useEditorStore.getState().project);
+    savedSnapshotRef.current = nextSnapshot;
+    if (metas) {
+      const hashes: Record<string, string> = {};
+      for (const [path, meta] of Object.entries(metas)) {
+        if (meta?.hash) {
+          hashes[path] = meta.hash;
+        }
+      }
+      baselineHashesRef.current = hashes;
+    }
   }, []);
+
+  const persistLastOpened = useCallback(async () => {
+    if (!activeProjectPath) {
+      return;
+    }
+    const { selection: currentSelection } = useEditorStore.getState();
+    await setProjectLastOpened(activeProjectPath, {
+      lastScriptId: currentSelection.scriptId,
+      lastSceneId: currentSelection.sceneId,
+    });
+  }, [activeProjectPath]);
 
   const persistProjectIfNeeded = useCallback(
     async (options?: { silent?: boolean }): Promise<"saved" | "skipped" | "external" | "error"> => {
       if (!activeProjectPath || externalUpdate) {
         return "skipped";
       }
-      const { project: currentProject, selection: currentSelection } = useEditorStore.getState();
-      const diskMeta = await getProjectMeta(activeProjectPath);
-      const plan = planProjectSave({
-        savedPayload: savedPayloadRef.current,
+      const { project: currentProject } = useEditorStore.getState();
+      const nextSnapshot = projectFileSnapshot(currentProject);
+      const paths = new Set([
+        ...Object.keys(savedSnapshotRef.current),
+        ...Object.keys(nextSnapshot),
+      ]);
+      const diskHashes: Record<string, string | null> = {};
+      await Promise.all(
+        [...paths].map(async (relativePath) => {
+          const meta = await getProjectFileMeta(activeProjectPath, relativePath);
+          diskHashes[relativePath] = meta?.hash ?? null;
+        }),
+      );
+
+      const plan = planProjectFilesSave({
         project: currentProject,
-        scriptId: currentSelection.scriptId,
-        sceneId: currentSelection.sceneId,
-        baselineHash: baselineMetaRef.current?.hash ?? null,
-        diskHash: diskMeta?.hash ?? null,
+        savedSnapshot: savedSnapshotRef.current,
+        baselineHashes: baselineHashesRef.current,
+        diskHashes,
       });
 
-      if (plan.action === "skip-clean") {
-        return "skipped";
-      }
-      if (plan.action === "skip-external") {
+      if (plan.hasExternal) {
         setExternalUpdate(true);
         return "external";
       }
+      if (plan.allClean) {
+        await persistLastOpened();
+        return "skipped";
+      }
 
       try {
-        const meta = await saveProjectPayload(
-          activeProjectPath,
-          plan.payload,
-          plan.expectedHash,
-        );
-        if (meta) {
-          baselineMetaRef.current = meta;
+        for (const write of plan.writes) {
+          const meta = await writeProjectFile(
+            activeProjectPath,
+            write.relativePath,
+            write.payload,
+            write.expectedHash,
+          );
+          if (meta?.hash) {
+            baselineHashesRef.current[write.relativePath] = meta.hash;
+          }
         }
-        savedPayloadRef.current = plan.payload;
+        for (const del of plan.deletes) {
+          await deleteProjectFile(activeProjectPath, del.relativePath, del.expectedHash);
+          delete baselineHashesRef.current[del.relativePath];
+        }
+        savedSnapshotRef.current = nextSnapshot;
+        for (const path of Object.keys(baselineHashesRef.current)) {
+          if (nextSnapshot[path] === undefined) {
+            delete baselineHashesRef.current[path];
+          }
+        }
+
+        await persistLastOpened();
         if (!options?.silent) {
           setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`);
         }
@@ -157,7 +200,7 @@ export default function App() {
         throw error;
       }
     },
-    [activeProjectPath, externalUpdate],
+    [activeProjectPath, externalUpdate, persistLastOpened],
   );
 
   const applyConflictCopies = useCallback((copies: string[]) => {
@@ -294,9 +337,7 @@ export default function App() {
     };
   }, [activeProjectPath, externalUpdate, isHydrated, persistProjectIfNeeded, stage]);
 
-  // Poll the on-disk fingerprint while editing so a newer copy synced in by
-  // Google Drive (from another machine) surfaces a "reload?" prompt instead of
-  // being silently clobbered by the next auto-save.
+  // Poll project.json + the active scene file for external Drive updates.
   useEffect(() => {
     if (!isHydrated || stage !== "editor" || !activeProjectPath || externalUpdate) {
       return;
@@ -306,20 +347,26 @@ export default function App() {
       if (isSavingRef.current) {
         return;
       }
-      void getProjectMeta(activeProjectPath)
-        .then((meta) => {
+      const { selection: currentSelection } = useEditorStore.getState();
+      const watched = [PROJECT_META_FILE];
+      if (currentSelection.scriptId && currentSelection.sceneId) {
+        watched.push(sceneRelativePath(currentSelection.scriptId, currentSelection.sceneId));
+      }
+      void Promise.all(
+        watched.map(async (relativePath) => {
+          const meta = await getProjectFileMeta(activeProjectPath, relativePath);
           if (cancelled || !meta) {
             return;
           }
-          const baseline = baselineMetaRef.current;
-          if (baseline && meta.hash !== baseline.hash) {
+          const baseline = baselineHashesRef.current[relativePath];
+          if (baseline && meta.hash !== baseline) {
             setExternalUpdate(true);
           }
-        })
-        .catch(() => {
-          // Transient read errors (e.g. file mid-sync) are ignored; the next
-          // tick will retry.
-        });
+        }),
+      ).catch(() => {
+        // Transient read errors (e.g. file mid-sync) are ignored; the next
+        // tick will retry.
+      });
       void listConflictCopies(activeProjectPath)
         .then((copies) => {
           if (!cancelled) {
@@ -380,15 +427,18 @@ export default function App() {
 
   const handleOpenProject = async (summary: ProjectSummary) => {
     try {
-      const loadedProject = await loadProjectFromPath(summary.path);
-      assertProjectInvariant(loadedProject);
-      hydrateProject(loadedProject);
-      baselineMetaRef.current = await getProjectMeta(summary.path);
-      captureSavedSnapshot();
+      const bundle = await loadProjectBundle(summary.path);
+      assertProjectInvariant(bundle.project);
+      hydrateProject(bundle.project, bundle.lastOpened);
+      captureSavedSnapshot(bundle.fileSnapshot, bundle.fileMetas);
       setExternalUpdate(false);
       applyConflictCopies(await listConflictCopies(summary.path));
       setActiveProjectPath(summary.path);
-      setSaveInfo(`Opened ${summary.name}`);
+      setSaveInfo(
+        bundle.migrated
+          ? `Opened ${summary.name} (migrated to scene files)`
+          : `Opened ${summary.name}`,
+      );
       setErrorMessage(null);
       setStage("editor");
     } catch (error) {
@@ -402,11 +452,10 @@ export default function App() {
       return;
     }
     try {
-      const loadedProject = await loadProjectFromPath(activeProjectPath);
-      assertProjectInvariant(loadedProject);
-      hydrateProject(loadedProject);
-      baselineMetaRef.current = await getProjectMeta(activeProjectPath);
-      captureSavedSnapshot();
+      const bundle = await loadProjectBundle(activeProjectPath);
+      assertProjectInvariant(bundle.project);
+      hydrateProject(bundle.project, bundle.lastOpened);
+      captureSavedSnapshot(bundle.fileSnapshot, bundle.fileMetas);
       setExternalUpdate(false);
       setSaveInfo(`Reloaded at ${new Date().toLocaleTimeString()}`);
       setErrorMessage(null);
@@ -416,12 +465,20 @@ export default function App() {
   };
 
   const handleKeepLocal = async () => {
-    // User chose to keep their in-memory version. Adopt the current on-disk
-    // fingerprint as the new baseline so we stop prompting; the next auto-save
+    // User chose to keep their in-memory version. Adopt current on-disk
+    // fingerprints as the new baseline so we stop prompting; the next auto-save
     // will overwrite the synced copy (last-write-wins, as designed).
     if (activeProjectPath) {
       try {
-        baselineMetaRef.current = await getProjectMeta(activeProjectPath);
+        const paths = Object.keys(savedSnapshotRef.current);
+        await Promise.all(
+          paths.map(async (relativePath) => {
+            const meta = await getProjectFileMeta(activeProjectPath, relativePath);
+            if (meta?.hash) {
+              baselineHashesRef.current[relativePath] = meta.hash;
+            }
+          }),
+        );
       } catch {
         // Ignore; a failed refresh just means we may prompt again later.
       }
@@ -763,9 +820,9 @@ export default function App() {
               </strong>
               <span className="conflict-banner-detail">
                 Google Drive kept an extra copy because two devices edited this
-                project at once. LightScript only reads <code>project.json</code>
-                ; review and remove these in your file manager to avoid losing
-                edits: {conflictCopies.join(", ")}
+                project at once. LightScript reads <code>project.json</code> and
+                scene files under <code>scripts/</code>; review and remove these
+                in your file manager to avoid losing edits: {conflictCopies.join(", ")}
               </span>
             </div>
             <button

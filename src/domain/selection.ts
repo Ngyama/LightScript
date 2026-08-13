@@ -1,6 +1,12 @@
 import type { Project, Selection } from "./model";
 import { findSceneInProject } from "./model";
 
+export type LastOpened = {
+  lastScriptId?: string;
+  lastSceneId?: string;
+};
+
+/** @deprecated Prefer app-local last-opened; kept for reading legacy project.json. */
 export function withLastOpenedSettings(
   project: Project,
   scriptId: string | undefined,
@@ -20,8 +26,12 @@ export function withLastOpenedSettings(
   };
 }
 
-export function resolveLastOpenedSelection(project: Project): Pick<Selection, "scriptId" | "sceneId"> {
-  const lastSceneId = project.settings.lastSceneId?.trim();
+export function resolveLastOpenedSelection(
+  project: Project,
+  lastOpened?: LastOpened | null,
+): Pick<Selection, "scriptId" | "sceneId"> {
+  const lastSceneId =
+    lastOpened?.lastSceneId?.trim() || project.settings.lastSceneId?.trim();
   if (lastSceneId) {
     const scene = findSceneInProject(project, lastSceneId);
     if (scene) {
@@ -33,7 +43,8 @@ export function resolveLastOpenedSelection(project: Project): Pick<Selection, "s
     }
   }
 
-  const lastScriptId = project.settings.lastScriptId?.trim();
+  const lastScriptId =
+    lastOpened?.lastScriptId?.trim() || project.settings.lastScriptId?.trim();
   if (lastScriptId) {
     const script = project.scripts.find((entry) => entry.id === lastScriptId);
     const scene = script?.scenes[0];

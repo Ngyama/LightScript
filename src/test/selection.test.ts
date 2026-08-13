@@ -4,7 +4,7 @@ import { resolveLastOpenedSelection, withLastOpenedSettings } from "../domain/se
 import { useEditorStore } from "../state/editorStore";
 
 describe("selection persistence", () => {
-  test("stores last opened scene in project settings", () => {
+  test("stores last opened scene in last-opened record", () => {
     const project = createDefaultProject();
     const script = project.scripts[0];
     const scene = script.scenes[0];
@@ -13,7 +13,7 @@ describe("selection persistence", () => {
     expect(next.settings.lastSceneId).toBe(scene.id);
   });
 
-  test("restores last opened scene when reopening project", () => {
+  test("restores last opened scene from app-local lastOpened", () => {
     const project = createDefaultProject();
     const script = project.scripts[0];
     const secondScene = {
@@ -26,16 +26,19 @@ describe("selection persistence", () => {
       scenes: [...script.scenes, secondScene],
     };
 
-    const withLast = withLastOpenedSettings(project, script.id, secondScene.id);
-    const restored = resolveLastOpenedSelection(withLast);
+    const restored = resolveLastOpenedSelection(project, {
+      lastScriptId: script.id,
+      lastSceneId: secondScene.id,
+    });
     expect(restored).toEqual({ scriptId: script.id, sceneId: secondScene.id });
   });
 
   test("falls back to first scene when saved scene no longer exists", () => {
     const project = createDefaultProject();
-    project.settings.lastScriptId = "missing-script";
-    project.settings.lastSceneId = "missing-scene";
-    const restored = resolveLastOpenedSelection(project);
+    const restored = resolveLastOpenedSelection(project, {
+      lastScriptId: "missing-script",
+      lastSceneId: "missing-scene",
+    });
     expect(restored.sceneId).toBe(project.scripts[0].scenes[0].id);
   });
 
@@ -51,11 +54,13 @@ describe("selection persistence", () => {
       ...script,
       scenes: [...script.scenes, secondScene],
     };
-    project.settings.lastScriptId = script.id;
-    project.settings.lastSceneId = secondScene.id;
 
-    useEditorStore.getState().hydrateProject(project);
+    useEditorStore.getState().hydrateProject(project, {
+      lastScriptId: script.id,
+      lastSceneId: secondScene.id,
+    });
     const selection = useEditorStore.getState().selection;
     expect(selection).toMatchObject({ scriptId: script.id, sceneId: secondScene.id });
+    expect(useEditorStore.getState().project.settings.lastSceneId).toBeUndefined();
   });
 });

@@ -1,56 +1,119 @@
 import type { Project } from "./model";
-import { withLastOpenedSettings } from "./selection";
+import {
+  listProjectFileEntries,
+  projectFileSnapshot,
+  removedProjectFiles,
+  type ProjectFileSnapshot,
+} from "./projectFormat";
 
-/** Rust `save_project_to_path` returns this when the on-disk hash no longer matches. */
+/** Backend returns this when an on-disk hash no longer matches. */
 export const EXTERNAL_UPDATE_SAVE_ERROR = "external_update";
 
-export function projectSavePayload(
-  project: Project,
-  scriptId: string | undefined,
-  sceneId: string | undefined,
-): string {
-  return JSON.stringify(withLastOpenedSettings(project, scriptId, sceneId), null, 2);
-}
+export type FileSavePlan =
+  | { action: "skip-clean"; relativePath: string; payload: string }
+  | { action: "skip-external"; relativePath: string; payload: string }
+  | { action: "write"; relativePath: string; payload: string; expectedHash: string | null }
+  | { action: "delete"; relativePath: string; expectedHash: string | null };
 
-export type ProjectSavePlan =
-  | { action: "skip-clean"; payload: string }
-  | { action: "skip-external"; payload: string }
-  | { action: "write"; payload: string; expectedHash: string | null };
+export type ProjectFilesSavePlan = {
+  /** True when every file is skip-clean and there are no deletes. */
+  allClean: boolean;
+  /** True when any file hit skip-external. */
+  hasExternal: boolean;
+  writes: Extract<FileSavePlan, { action: "write" }>[];
+  deletes: Extract<FileSavePlan, { action: "delete" }>[];
+};
 
-/**
- * Decide whether a project write should proceed.
- *
- * - skip-clean: memory matches the last successful save / open snapshot → do not touch disk
- * - skip-external: disk hash drifted from our baseline → do not overwrite; surface reload UI
- * - write: proceed, optionally with an expected hash for backend compare-and-swap
- */
-export function planProjectSave(args: {
-  savedPayload: string | null;
-  project: Project;
-  scriptId: string | undefined;
-  sceneId: string | undefined;
-  baselineHash: string | null;
-  diskHash: string | null;
-}): ProjectSavePlan {
-  const payload = projectSavePayload(args.project, args.scriptId, args.sceneId);
-
-  if (args.savedPayload !== null && args.savedPayload === payload) {
-    return { action: "skip-clean", payload };
+export function planSingleFileSave(args: {
+  relativePath: string;
+  savedPayload: string | null | undefined;
+  nextPayload: string;
+  baselineHash: string | null | undefined;
+  diskHash: string | null | undefined;
+}): FileSavePlan {
+  if (args.savedPayload != null && args.savedPayload === args.nextPayload) {
+    return {
+      action: "skip-clean",
+      relativePath: args.relativePath,
+      payload: args.nextPayload,
+    };
   }
 
-  if (
-    args.baselineHash !== null &&
-    args.diskHash !== null &&
-    args.baselineHash !== args.diskHash
-  ) {
-    return { action: "skip-external", payload };
+  const baselineHash = args.baselineHash ?? null;
+  const diskHash = args.diskHash ?? null;
+  if (baselineHash !== null && diskHash !== null && baselineHash !== diskHash) {
+    return {
+      action: "skip-external",
+      relativePath: args.relativePath,
+      payload: args.nextPayload,
+    };
   }
 
   return {
     action: "write",
-    payload,
-    expectedHash: args.baselineHash,
+    relativePath: args.relativePath,
+    payload: args.nextPayload,
+    expectedHash: baselineHash,
   };
+}
+
+/**
+ * Diff in-memory project against last saved per-file snapshots and plan writes/deletes.
+ * Does not include last-opened (that lives in app-local settings).
+ */
+export function planProjectFilesSave(args: {
+  project: Project;
+  savedSnapshot: ProjectFileSnapshot | null;
+  baselineHashes: Record<string, string | null | undefined>;
+  diskHashes: Record<string, string | null | undefined>;
+}): ProjectFilesSavePlan {
+  const nextSnapshot = projectFileSnapshot(args.project);
+  const previousSnapshot = args.savedSnapshot ?? {};
+  const writes: Extract<FileSavePlan, { action: "write" }>[] = [];
+  const deletes: Extract<FileSavePlan, { action: "delete" }>[] = [];
+  let allClean = true;
+  let hasExternal = false;
+
+  for (const entry of listProjectFileEntries(args.project)) {
+    const plan = planSingleFileSave({
+      relativePath: entry.relativePath,
+      savedPayload: previousSnapshot[entry.relativePath],
+      nextPayload: entry.payload,
+      baselineHash: args.baselineHashes[entry.relativePath],
+      diskHash: args.diskHashes[entry.relativePath],
+    });
+    if (plan.action === "skip-clean") {
+      continue;
+    }
+    allClean = false;
+    if (plan.action === "skip-external") {
+      hasExternal = true;
+      continue;
+    }
+    if (plan.action === "write") {
+      writes.push(plan);
+    }
+  }
+
+  if (hasExternal) {
+    return { allClean: false, hasExternal: true, writes: [], deletes: [] };
+  }
+
+  for (const relativePath of removedProjectFiles(previousSnapshot, nextSnapshot)) {
+    allClean = false;
+    const baselineHash = args.baselineHashes[relativePath] ?? null;
+    const diskHash = args.diskHashes[relativePath] ?? null;
+    if (baselineHash !== null && diskHash !== null && baselineHash !== diskHash) {
+      return { allClean: false, hasExternal: true, writes: [], deletes: [] };
+    }
+    deletes.push({
+      action: "delete",
+      relativePath,
+      expectedHash: baselineHash,
+    });
+  }
+
+  return { allClean, hasExternal: false, writes, deletes };
 }
 
 export function isExternalUpdateSaveError(error: unknown): boolean {
