@@ -32,6 +32,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test
+
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:

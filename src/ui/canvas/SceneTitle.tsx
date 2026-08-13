@@ -3,7 +3,7 @@ interface SceneTitleProps {
   fallback?: string;
 }
 
-export function SceneTitle({ title, fallback = "Select a Scene" }: SceneTitleProps) {
+export function SceneTitle({ title, fallback = "请选择 Scene" }: SceneTitleProps) {
   if (!title) {
     return <h1 className="scene-title scene-title-empty">{fallback}</h1>;
   }

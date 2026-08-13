@@ -158,7 +158,7 @@ export function GlobalCharacterBar() {
                   <button
                     type="button"
                     className="character-chip-remove"
-                    aria-label={`Delete ${character.name}`}
+                    aria-label={`删除 ${character.name}`}
                     title={`删除全局角色 ${character.name}`}
                     onClick={() => setPendingDeleteId(character.id)}
                   >

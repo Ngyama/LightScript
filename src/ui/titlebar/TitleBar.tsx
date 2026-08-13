@@ -38,7 +38,7 @@ export function TitleBar({ title, actions, showSearch = false }: TitleBarProps) 
         <span className="title-bar-label">{title}</span>
       </div>
       {actions && actions.length > 0 && (
-        <nav className="title-bar-actions" aria-label="Editor actions">
+        <nav className="title-bar-actions" aria-label="编辑操作">
           {actions.map((action) => (
             <button
               key={action.label}
@@ -63,8 +63,8 @@ export function TitleBar({ title, actions, showSearch = false }: TitleBarProps) 
           type="button"
           className="title-bar-button"
           onClick={handleMinimize}
-          aria-label="Minimize"
-          title="Minimize"
+          aria-label="最小化"
+          title="最小化"
         >
           <Minus size={14} strokeWidth={1.6} />
         </button>
@@ -72,8 +72,8 @@ export function TitleBar({ title, actions, showSearch = false }: TitleBarProps) 
           type="button"
           className="title-bar-button title-bar-button-close"
           onClick={handleClose}
-          aria-label="Close"
-          title="Close"
+          aria-label="关闭"
+          title="关闭"
         >
           <X size={14} strokeWidth={1.6} />
         </button>

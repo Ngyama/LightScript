@@ -17,9 +17,48 @@ struct ProjectLastOpened {
   last_scene_id: Option<String>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncPrefs {
+  #[serde(default = "default_true")]
+  auto_push_on_leave: bool,
+  #[serde(default)]
+  periodic_push_minutes: u32,
+}
+
+fn default_true() -> bool {
+  true
+}
+
+impl Default for SyncPrefs {
+  fn default() -> Self {
+    Self {
+      auto_push_on_leave: true,
+      periodic_push_minutes: 0,
+    }
+  }
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+struct ProjectSyncState {
+  last_push_at: Option<u64>,
+  last_pull_at: Option<u64>,
+  #[serde(default)]
+  last_push_fingerprints: HashMap<String, String>,
+  #[serde(default)]
+  last_known_cloud_fingerprints: HashMap<String, String>,
+}
+
 #[derive(Default, Deserialize, Serialize)]
 struct AppSettings {
   repo_path: Option<String>,
+  #[serde(default)]
+  cloud_mirror_path: Option<String>,
+  #[serde(default)]
+  sync: SyncPrefs,
+  /// Keyed by project folder name (relative identity across machines).
+  #[serde(default)]
+  sync_state: HashMap<String, ProjectSyncState>,
   #[serde(default)]
   projects: HashMap<String, ProjectLastOpened>,
 }
@@ -421,9 +460,447 @@ fn set_repo_path(app: tauri::AppHandle, repo_path: String) -> Result<(), String>
   if !path.exists() || !path.is_dir() {
     return Err("repo path must be an existing directory".to_string());
   }
-  let mut settings = read_settings(&app)?;
+  let settings = read_settings(&app)?;
+  if let Some(cloud) = settings.cloud_mirror_path.as_deref() {
+    validate_distinct_library_roots(&path, Path::new(cloud))?;
+  }
+  let mut settings = settings;
   settings.repo_path = Some(repo_path);
   write_settings(&app, &settings)
+}
+
+fn cloud_mirror_path_from_settings(settings: &AppSettings) -> Result<Option<PathBuf>, String> {
+  let Some(raw) = settings.cloud_mirror_path.as_ref() else {
+    return Ok(None);
+  };
+  let path = PathBuf::from(raw);
+  if !path.exists() || !path.is_dir() {
+    return Err("configured cloud mirror path does not exist or is not a directory".to_string());
+  }
+  Ok(Some(path))
+}
+
+fn validate_distinct_library_roots(local: &Path, cloud: &Path) -> Result<(), String> {
+  let local_canon = fs::canonicalize(local)
+    .map_err(|error| format!("failed to canonicalize local library: {error}"))?;
+  let cloud_canon = fs::canonicalize(cloud)
+    .map_err(|error| format!("failed to canonicalize cloud mirror: {error}"))?;
+  if local_canon == cloud_canon {
+    return Err("本地作品库与云端镜像不能是同一个文件夹".to_string());
+  }
+  if cloud_canon.starts_with(&local_canon) {
+    return Err("云端镜像不能位于本地作品库内部".to_string());
+  }
+  if local_canon.starts_with(&cloud_canon) {
+    return Err("本地作品库不能位于云端镜像内部".to_string());
+  }
+  Ok(())
+}
+
+fn project_key_from_paths(repo_path: &Path, project_path: &Path) -> Result<String, String> {
+  let canonical_project = fs::canonicalize(project_path)
+    .map_err(|error| format!("failed to canonicalize project path: {error}"))?;
+  let canonical_repo = fs::canonicalize(repo_path)
+    .map_err(|error| format!("failed to canonicalize repo path: {error}"))?;
+  if canonical_project == canonical_repo {
+    return Ok(
+      canonical_repo
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string()),
+    );
+  }
+  if !canonical_project.starts_with(&canonical_repo) {
+    return Err("project path must be inside the local library".to_string());
+  }
+  let rel = canonical_project
+    .strip_prefix(&canonical_repo)
+    .map_err(|_| "project path must be inside the local library".to_string())?;
+  let key = rel.to_string_lossy().replace('\\', "/");
+  if key.is_empty() || key.contains("..") {
+    return Err("invalid project key".to_string());
+  }
+  Ok(key)
+}
+
+fn cloud_project_dir(cloud_root: &Path, project_key: &str) -> Result<PathBuf, String> {
+  let joined = cloud_root.join(project_key);
+  let normalized = normalize_relative_path(project_key)?;
+  if normalized.as_os_str().is_empty() {
+    return Err("invalid project key".to_string());
+  }
+  Ok(joined)
+}
+
+/// Live syncable files only: project.json + scripts/**/scenes/*.json (skips .lightscript).
+fn collect_live_file_hashes(project_dir: &Path) -> Result<HashMap<String, String>, String> {
+  let mut out: HashMap<String, String> = HashMap::new();
+  let meta = project_json_path(project_dir);
+  if meta.exists() {
+    let fingerprint = compute_project_meta(&meta)?;
+    out.insert("project.json".to_string(), fingerprint.hash);
+  }
+  collect_live_scene_hashes(project_dir, project_dir, &mut out)?;
+  Ok(out)
+}
+
+fn collect_live_scene_hashes(
+  project_dir: &Path,
+  dir: &Path,
+  out: &mut HashMap<String, String>,
+) -> Result<(), String> {
+  if !dir.exists() {
+    return Ok(());
+  }
+  for entry in fs::read_dir(dir).map_err(|error| format!("failed to read dir: {error}"))? {
+    let entry = entry.map_err(|error| format!("failed to read dir entry: {error}"))?;
+    let path = entry.path();
+    let name = entry.file_name().to_string_lossy().to_string();
+    if name == ".lightscript" || name.ends_with(".tmp") {
+      continue;
+    }
+    if path.is_dir() {
+      collect_live_scene_hashes(project_dir, &path, out)?;
+      continue;
+    }
+    if !path.is_file() || !name.ends_with(".json") {
+      continue;
+    }
+    let parent_name = path
+      .parent()
+      .and_then(|parent| parent.file_name())
+      .map(|value| value.to_string_lossy().to_string())
+      .unwrap_or_default();
+    if parent_name != "scenes" {
+      continue;
+    }
+    if !is_clean_scene_file_name(&name) {
+      continue;
+    }
+    let rel = path
+      .strip_prefix(project_dir)
+      .map_err(|_| "scene path escaped project directory".to_string())?
+      .to_string_lossy()
+      .replace('\\', "/");
+    let fingerprint = compute_project_meta(&path)?;
+    out.insert(rel, fingerprint.hash);
+  }
+  Ok(())
+}
+
+fn maps_equal(a: &HashMap<String, String>, b: &HashMap<String, String>) -> bool {
+  a.len() == b.len() && a.iter().all(|(key, value)| b.get(key) == Some(value))
+}
+
+fn classify_sync_status(
+  local: &HashMap<String, String>,
+  cloud: Option<&HashMap<String, String>>,
+  last_push: &HashMap<String, String>,
+) -> String {
+  let Some(cloud_map) = cloud else {
+    return "cloudMissing".to_string();
+  };
+  if maps_equal(local, cloud_map) {
+    return "inSync".to_string();
+  }
+  let local_matches_push = maps_equal(local, last_push);
+  let cloud_matches_push = maps_equal(cloud_map, last_push);
+  if local_matches_push && !cloud_matches_push {
+    return "cloudAhead".to_string();
+  }
+  if cloud_matches_push && !local_matches_push {
+    return "localAhead".to_string();
+  }
+  // No prior push baseline: treat any difference as localAhead if cloud empty-ish,
+  // otherwise diverged when both have content that differs.
+  if last_push.is_empty() {
+    if cloud_map.is_empty() {
+      return "localAhead".to_string();
+    }
+    if local.is_empty() {
+      return "cloudAhead".to_string();
+    }
+  }
+  "diverged".to_string()
+}
+
+fn now_ms() -> u64 {
+  std::time::SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|elapsed| elapsed.as_millis() as u64)
+    .unwrap_or(0)
+}
+
+fn copy_live_tree(from: &Path, to: &Path, files: &HashMap<String, String>) -> Result<(), String> {
+  fs::create_dir_all(to).map_err(|error| format!("failed to create cloud project dir: {error}"))?;
+  for relative in files.keys() {
+    let source = resolve_project_relative(from, relative)?;
+    if !source.exists() {
+      continue;
+    }
+    let dest = to.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+    ensure_parent_dir(&dest)?;
+    let file_name = dest
+      .file_name()
+      .map(|name| name.to_string_lossy().to_string())
+      .unwrap_or_else(|| "file.json".to_string());
+    let temp_path = dest
+      .parent()
+      .unwrap_or(to)
+      .join(format!("{file_name}.tmp"));
+    fs::copy(&source, &temp_path).map_err(|error| format!("failed to copy {relative}: {error}"))?;
+    fs::rename(&temp_path, &dest).map_err(|error| format!("failed to finalize {relative}: {error}"))?;
+  }
+  Ok(())
+}
+
+fn delete_extra_live_files(target: &Path, keep: &HashMap<String, String>) -> Result<(), String> {
+  let existing = collect_live_file_hashes(target)?;
+  for relative in existing.keys() {
+    if keep.contains_key(relative) {
+      continue;
+    }
+    let path = target.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if path.exists() {
+      fs::remove_file(&path).map_err(|error| format!("failed to remove extra {relative}: {error}"))?;
+    }
+  }
+  Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncInspectResult {
+  status: String,
+  project_key: String,
+  cloud_configured: bool,
+  local_files: HashMap<String, String>,
+  cloud_files: HashMap<String, String>,
+  last_push_at: Option<u64>,
+  last_pull_at: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncTransferResult {
+  status: String,
+  project_key: String,
+  transferred: usize,
+}
+
+#[tauri::command]
+fn get_cloud_mirror_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+  let settings = read_settings(&app)?;
+  Ok(settings.cloud_mirror_path)
+}
+
+#[tauri::command]
+fn set_cloud_mirror_path(app: tauri::AppHandle, cloud_mirror_path: Option<String>) -> Result<(), String> {
+  let mut settings = read_settings(&app)?;
+  if let Some(raw) = cloud_mirror_path.as_ref() {
+    let path = PathBuf::from(raw);
+    if !path.exists() || !path.is_dir() {
+      return Err("cloud mirror path must be an existing directory".to_string());
+    }
+    if let Some(repo) = settings.repo_path.as_ref() {
+      validate_distinct_library_roots(Path::new(repo), &path)?;
+    }
+    settings.cloud_mirror_path = Some(raw.clone());
+  } else {
+    settings.cloud_mirror_path = None;
+  }
+  write_settings(&app, &settings)
+}
+
+#[tauri::command]
+fn get_sync_prefs(app: tauri::AppHandle) -> Result<SyncPrefs, String> {
+  let settings = read_settings(&app)?;
+  Ok(settings.sync)
+}
+
+#[tauri::command]
+fn set_sync_prefs(
+  app: tauri::AppHandle,
+  auto_push_on_leave: bool,
+  periodic_push_minutes: u32,
+) -> Result<(), String> {
+  let mut settings = read_settings(&app)?;
+  settings.sync.auto_push_on_leave = auto_push_on_leave;
+  settings.sync.periodic_push_minutes = periodic_push_minutes;
+  write_settings(&app, &settings)
+}
+
+#[tauri::command]
+fn inspect_project_sync(app: tauri::AppHandle, project_path: String) -> Result<SyncInspectResult, String> {
+  let settings = read_settings(&app)?;
+  let repo_path = repo_path_from_settings(&app)?;
+  let project_dir = PathBuf::from(&project_path);
+  let project_key = project_key_from_paths(&repo_path, &project_dir)?;
+  let local_files = collect_live_file_hashes(&project_dir)?;
+  let state = settings
+    .sync_state
+    .get(&project_key)
+    .cloned()
+    .unwrap_or_default();
+
+  let Some(cloud_root) = cloud_mirror_path_from_settings(&settings)? else {
+    return Ok(SyncInspectResult {
+      status: "noCloud".to_string(),
+      project_key,
+      cloud_configured: false,
+      local_files,
+      cloud_files: HashMap::new(),
+      last_push_at: state.last_push_at,
+      last_pull_at: state.last_pull_at,
+    });
+  };
+
+  let cloud_dir = cloud_project_dir(&cloud_root, &project_key)?;
+  let cloud_files = if cloud_dir.exists() && project_json_path(&cloud_dir).exists() {
+    collect_live_file_hashes(&cloud_dir)?
+  } else {
+    HashMap::new()
+  };
+  let cloud_opt = if cloud_dir.exists() && project_json_path(&cloud_dir).exists() {
+    Some(&cloud_files)
+  } else {
+    None
+  };
+  let status = classify_sync_status(&local_files, cloud_opt, &state.last_push_fingerprints);
+  Ok(SyncInspectResult {
+    status,
+    project_key,
+    cloud_configured: true,
+    local_files,
+    cloud_files,
+    last_push_at: state.last_push_at,
+    last_pull_at: state.last_pull_at,
+  })
+}
+
+#[tauri::command]
+fn push_project_to_cloud(
+  app: tauri::AppHandle,
+  project_path: String,
+  force: bool,
+) -> Result<SyncTransferResult, String> {
+  let settings = read_settings(&app)?;
+  let repo_path = repo_path_from_settings(&app)?;
+  let cloud_root = cloud_mirror_path_from_settings(&settings)?
+    .ok_or_else(|| "尚未配置云端镜像文件夹".to_string())?;
+  validate_distinct_library_roots(&repo_path, &cloud_root)?;
+
+  let project_dir = PathBuf::from(&project_path);
+  let project_key = project_key_from_paths(&repo_path, &project_dir)?;
+  let local_files = collect_live_file_hashes(&project_dir)?;
+  if local_files.is_empty() {
+    return Err("本地作品没有可同步的文件".to_string());
+  }
+
+  let state = settings
+    .sync_state
+    .get(&project_key)
+    .cloned()
+    .unwrap_or_default();
+  let cloud_dir = cloud_project_dir(&cloud_root, &project_key)?;
+  let cloud_files = if cloud_dir.exists() && project_json_path(&cloud_dir).exists() {
+    collect_live_file_hashes(&cloud_dir)?
+  } else {
+    HashMap::new()
+  };
+  let cloud_opt = if cloud_dir.exists() && project_json_path(&cloud_dir).exists() {
+    Some(&cloud_files)
+  } else {
+    None
+  };
+  let status = classify_sync_status(&local_files, cloud_opt, &state.last_push_fingerprints);
+  if !force && (status == "cloudAhead" || status == "diverged") {
+    return Err(format!("sync_conflict:{status}"));
+  }
+
+  copy_live_tree(&project_dir, &cloud_dir, &local_files)?;
+  delete_extra_live_files(&cloud_dir, &local_files)?;
+  let transferred = local_files.len();
+  let cloud_after = collect_live_file_hashes(&cloud_dir)?;
+
+  let mut settings = read_settings(&app)?;
+  settings.sync_state.insert(
+    project_key.clone(),
+    ProjectSyncState {
+      last_push_at: Some(now_ms()),
+      last_pull_at: state.last_pull_at,
+      last_push_fingerprints: local_files.clone(),
+      last_known_cloud_fingerprints: cloud_after,
+    },
+  );
+  write_settings(&app, &settings)?;
+
+  Ok(SyncTransferResult {
+    status: "pushed".to_string(),
+    project_key,
+    transferred,
+  })
+}
+
+#[tauri::command]
+fn pull_project_from_cloud(
+  app: tauri::AppHandle,
+  project_path: String,
+  force: bool,
+) -> Result<SyncTransferResult, String> {
+  let settings = read_settings(&app)?;
+  let repo_path = repo_path_from_settings(&app)?;
+  let cloud_root = cloud_mirror_path_from_settings(&settings)?
+    .ok_or_else(|| "尚未配置云端镜像文件夹".to_string())?;
+  validate_distinct_library_roots(&repo_path, &cloud_root)?;
+
+  let project_dir = PathBuf::from(&project_path);
+  let project_key = project_key_from_paths(&repo_path, &project_dir)?;
+  let cloud_dir = cloud_project_dir(&cloud_root, &project_key)?;
+  if !cloud_dir.exists() || !project_json_path(&cloud_dir).exists() {
+    return Err("云端还没有此作品的镜像".to_string());
+  }
+
+  let local_files = collect_live_file_hashes(&project_dir)?;
+  let cloud_files = collect_live_file_hashes(&cloud_dir)?;
+  let state = settings
+    .sync_state
+    .get(&project_key)
+    .cloned()
+    .unwrap_or_default();
+  let status = classify_sync_status(&local_files, Some(&cloud_files), &state.last_push_fingerprints);
+  if !force && (status == "localAhead" || status == "diverged") {
+    return Err(format!("sync_conflict:{status}"));
+  }
+
+  // Snapshot existing local live files before overwrite.
+  for relative in local_files.keys() {
+    let data_path = resolve_project_relative(&project_dir, relative)?;
+    let _ = snapshot_file_before_save(&project_dir, &data_path, relative);
+  }
+
+  copy_live_tree(&cloud_dir, &project_dir, &cloud_files)?;
+  delete_extra_live_files(&project_dir, &cloud_files)?;
+  let transferred = cloud_files.len();
+  let local_after = collect_live_file_hashes(&project_dir)?;
+
+  let mut settings = read_settings(&app)?;
+  settings.sync_state.insert(
+    project_key.clone(),
+    ProjectSyncState {
+      last_push_at: Some(now_ms()),
+      last_pull_at: Some(now_ms()),
+      last_push_fingerprints: local_after.clone(),
+      last_known_cloud_fingerprints: cloud_files,
+    },
+  );
+  write_settings(&app, &settings)?;
+
+  Ok(SyncTransferResult {
+    status: "pulled".to_string(),
+    project_key,
+    transferred,
+  })
 }
 
 #[tauri::command]
@@ -1061,6 +1538,13 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       get_repo_path,
       set_repo_path,
+      get_cloud_mirror_path,
+      set_cloud_mirror_path,
+      get_sync_prefs,
+      set_sync_prefs,
+      inspect_project_sync,
+      push_project_to_cloud,
+      pull_project_from_cloud,
       list_projects,
       create_project,
       delete_project,

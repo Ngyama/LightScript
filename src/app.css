@@ -1720,6 +1720,54 @@ textarea.block-input,
   color: var(--ls-danger);
 }
 
+.settings-path {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-all;
+  color: rgba(var(--ls-fg-rgb), 0.78);
+}
+
+.settings-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-button-row .settings-update-button {
+  width: auto;
+  flex: 1 1 auto;
+}
+
+.settings-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  color: rgba(var(--ls-fg-rgb), 0.82);
+}
+
+.settings-checkbox input {
+  margin-top: 2px;
+}
+
+.sync-conflict-box {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--ls-fg-rgb), 0.14);
+  border-radius: 8px;
+  background: rgba(var(--ls-fg-rgb), 0.04);
+}
+
+.sync-conflict-box p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .settings-update-button {
   width: 100%;
   border: 1px solid rgba(var(--ls-fg-rgb), 0.18);

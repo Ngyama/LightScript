@@ -14,9 +14,9 @@ export function EditorCanvas() {
     if (!selection.scriptId) return "Select a Scene to start writing";
     if (!selection.sceneId) {
       const script = project.scripts.find((entry) => entry.id === selection.scriptId);
-      return script ? `${script.title} · select a Scene` : "Select a Scene";
+      return script ? `${script.title} · 请选择 Scene` : "请选择 Scene";
     }
-    return "Select a Scene";
+    return "请选择 Scene";
   })();
 
   return (

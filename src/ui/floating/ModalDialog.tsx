@@ -13,7 +13,7 @@ interface ModalDialogProps {
 export function ModalDialog({
   title,
   message,
-  confirmText = "OK",
+  confirmText = "确定",
   cancelText,
   variant = "default",
   onConfirm,

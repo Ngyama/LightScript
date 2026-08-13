@@ -98,6 +98,83 @@ export async function setRepoPath(repoPath: string): Promise<void> {
   localStorage.setItem(`${LOCAL_STORAGE_KEY}.repoPath`, repoPath);
 }
 
+export async function getCloudMirrorPath(): Promise<string | null> {
+  if (isTauriRuntime()) {
+    return invoke<string | null>("get_cloud_mirror_path");
+  }
+  return localStorage.getItem(`${LOCAL_STORAGE_KEY}.cloudMirrorPath`);
+}
+
+export async function setCloudMirrorPath(cloudMirrorPath: string | null): Promise<void> {
+  if (isTauriRuntime()) {
+    await invoke("set_cloud_mirror_path", { cloudMirrorPath });
+    return;
+  }
+  if (cloudMirrorPath) {
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}.cloudMirrorPath`, cloudMirrorPath);
+  } else {
+    localStorage.removeItem(`${LOCAL_STORAGE_KEY}.cloudMirrorPath`);
+  }
+}
+
+export type { SyncInspectResult, SyncPrefs, SyncTransferResult } from "../domain/projectSync";
+
+export async function getSyncPrefs(): Promise<import("../domain/projectSync").SyncPrefs> {
+  if (isTauriRuntime()) {
+    return invoke("get_sync_prefs");
+  }
+  return { autoPushOnLeave: true, periodicPushMinutes: 0 };
+}
+
+export async function setSyncPrefs(prefs: {
+  autoPushOnLeave: boolean;
+  periodicPushMinutes: number;
+}): Promise<void> {
+  if (isTauriRuntime()) {
+    await invoke("set_sync_prefs", {
+      autoPushOnLeave: prefs.autoPushOnLeave,
+      periodicPushMinutes: prefs.periodicPushMinutes,
+    });
+  }
+}
+
+export async function inspectProjectSync(
+  projectPath: string,
+): Promise<import("../domain/projectSync").SyncInspectResult> {
+  if (isTauriRuntime()) {
+    return invoke("inspect_project_sync", { projectPath });
+  }
+  return {
+    status: "noCloud",
+    projectKey: "",
+    cloudConfigured: false,
+    localFiles: {},
+    cloudFiles: {},
+    lastPushAt: null,
+    lastPullAt: null,
+  };
+}
+
+export async function pushProjectToCloud(
+  projectPath: string,
+  force = false,
+): Promise<import("../domain/projectSync").SyncTransferResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("同步仅在桌面端可用。");
+  }
+  return invoke("push_project_to_cloud", { projectPath, force });
+}
+
+export async function pullProjectFromCloud(
+  projectPath: string,
+  force = false,
+): Promise<import("../domain/projectSync").SyncTransferResult> {
+  if (!isTauriRuntime()) {
+    throw new Error("同步仅在桌面端可用。");
+  }
+  return invoke("pull_project_from_cloud", { projectPath, force });
+}
+
 export async function listProjects(): Promise<ProjectSummary[]> {
   if (isTauriRuntime()) {
     return invoke<ProjectSummary[]>("list_projects");

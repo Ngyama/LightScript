@@ -22,13 +22,18 @@ import {
   createProject,
   deleteProject,
   deleteProjectFile,
+  getCloudMirrorPath,
   getProjectFileMeta,
+  getSyncPrefs,
   listConflictCopies,
   listProjects,
   loadProjectBundle,
   pickDirectory,
   getRepoPath,
+  inspectProjectSync,
+  pushProjectToCloud,
   saveSyncedCopies,
+  setCloudMirrorPath,
   setProjectLastOpened,
   setRepoPath,
   writeProjectFile,
@@ -36,6 +41,7 @@ import {
   type ProjectSummary,
 } from "./storage/projectStorage";
 import type { Scene } from "./domain/model";
+import { describeSyncStatus } from "./domain/projectSync";
 import { EditorCanvas } from "./ui/canvas/EditorCanvas";
 import { ExportDialog } from "./ui/floating/ExportDialog";
 import { ImportDialog } from "./ui/floating/ImportDialog";
@@ -43,6 +49,7 @@ import { ModalDialog } from "./ui/floating/ModalDialog";
 import { ExternalUpdateDialog } from "./ui/floating/ExternalUpdateDialog";
 import { RecoveryDialog } from "./ui/floating/RecoveryDialog";
 import { SettingsDialog } from "./ui/floating/SettingsDialog";
+import { SyncDialog } from "./ui/floating/SyncDialog";
 import { UpdateAvailableDialog } from "./ui/floating/UpdateAvailableDialog";
 import { SavedStatus } from "./ui/floating/SavedStatus";
 import { OrbitNavigator } from "./ui/navigation/OrbitNavigator";
@@ -79,14 +86,17 @@ export default function App() {
   const isHydrated = useEditorStore((state) => state.isHydrated);
   const setHydrated = useEditorStore((state) => state.setHydrated);
 
-  const [saveInfo, setSaveInfo] = useState("Not saved yet");
+  const [saveInfo, setSaveInfo] = useState("尚未保存");
   const [stage, setStage] = useState<AppStage>("splash");
   const [exportTargetScene, setExportTargetScene] = useState<Scene | null>(null);
   const [importTargetScene, setImportTargetScene] = useState<Scene | null>(null);
   const selection = useEditorStore((state) => state.selection);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
+  const [isSyncOpen, setIsSyncOpen] = useState(false);
   const [repoPath, setRepoPathInput] = useState("");
+  const [cloudMirrorPath, setCloudMirrorPathInput] = useState("");
+  const [autoPushOnLeave, setAutoPushOnLeave] = useState(true);
   const [newProjectName, setNewProjectName] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [projectList, setProjectList] = useState<ProjectSummary[]>([]);
@@ -213,7 +223,7 @@ export default function App() {
 
         await persistLastOpened();
         if (!options?.silent) {
-          setSaveInfo(`Saved at ${new Date().toLocaleTimeString()}`);
+          setSaveInfo(`已保存 · ${new Date().toLocaleTimeString()}`);
         }
         return "saved";
       } catch (error) {
@@ -239,21 +249,39 @@ export default function App() {
 
   // Cross-fade/slide transition between stages. We keep the outgoing stage
   // mounted for one animation cycle so it can animate out while the new one
-  // animates in. Driven purely off `stage` via a ref so the timer is never
-  // cancelled by an unrelated re-render.
+  // animates in. prevStage must be set in the same render as stage — setting
+  // it in an effect leaves one frame with only the new stage (editor flashes
+  // twice when leaving: unmount → remount as exit layer).
   const [prevStage, setPrevStage] = useState<AppStage | null>(null);
   const [transitionDir, setTransitionDir] = useState<"forward" | "backward">("forward");
   const lastStageRef = useRef<AppStage>(stage);
+  const stageTransitionTimerRef = useRef<number | null>(null);
+
+  const navigateStage = useCallback((next: AppStage) => {
+    const previous = lastStageRef.current;
+    if (previous === next) {
+      return;
+    }
+    setTransitionDir(STAGE_ORDER[next] >= STAGE_ORDER[previous] ? "forward" : "backward");
+    setPrevStage(previous);
+    setStage(next);
+    lastStageRef.current = next;
+    if (stageTransitionTimerRef.current !== null) {
+      window.clearTimeout(stageTransitionTimerRef.current);
+    }
+    stageTransitionTimerRef.current = window.setTimeout(() => {
+      setPrevStage(null);
+      stageTransitionTimerRef.current = null;
+    }, STAGE_TRANSITION_MS);
+  }, []);
 
   useEffect(() => {
-    const previous = lastStageRef.current;
-    if (previous === stage) return;
-    setTransitionDir(STAGE_ORDER[stage] >= STAGE_ORDER[previous] ? "forward" : "backward");
-    setPrevStage(previous);
-    lastStageRef.current = stage;
-    const timer = window.setTimeout(() => setPrevStage(null), STAGE_TRANSITION_MS);
-    return () => window.clearTimeout(timer);
-  }, [stage]);
+    return () => {
+      if (stageTransitionTimerRef.current !== null) {
+        window.clearTimeout(stageTransitionTimerRef.current);
+      }
+    };
+  }, []);
 
   // Quiet background update check once the splash screen is gone.
   useEffect(() => {
@@ -286,12 +314,23 @@ export default function App() {
         if (cancelled) return;
         if (savedRepoPath) {
           setRepoPathInput(savedRepoPath);
-          const projects = await listProjects();
+          const [projects, cloud, prefs] = await Promise.all([
+            listProjects(),
+            getCloudMirrorPath(),
+            getSyncPrefs(),
+          ]);
           if (cancelled) return;
           setProjectList(projects);
+          setCloudMirrorPathInput(cloud ?? "");
+          setAutoPushOnLeave(prefs.autoPushOnLeave);
+        } else {
+          const [cloud, prefs] = await Promise.all([getCloudMirrorPath(), getSyncPrefs()]);
+          if (cancelled) return;
+          setCloudMirrorPathInput(cloud ?? "");
+          setAutoPushOnLeave(prefs.autoPushOnLeave);
         }
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Failed to initialize app.");
+        setErrorMessage(error instanceof Error ? error.message : "初始化失败。");
       } finally {
         if (!cancelled) setHydrated(true);
       }
@@ -319,7 +358,7 @@ export default function App() {
       isSavingRef.current = true;
       void persistProjectIfNeeded()
         .catch((error) => {
-          setErrorMessage(error instanceof Error ? error.message : "Auto-save failed.");
+          setErrorMessage(error instanceof Error ? error.message : "自动保存失败。");
         })
         .finally(() => {
           isSavingRef.current = false;
@@ -456,7 +495,7 @@ export default function App() {
   const applyRepoPathChange = async (nextPath: string): Promise<boolean> => {
     const trimmedPath = nextPath.trim();
     if (!trimmedPath) {
-      setErrorMessage("Writing library folder cannot be empty.");
+      setErrorMessage("本地作品库路径不能为空。");
       return false;
     }
     try {
@@ -467,16 +506,27 @@ export default function App() {
       await refreshProjectList();
       return true;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to save repository path.");
+      setErrorMessage(error instanceof Error ? error.message : "无法保存本地作品库路径。");
       return false;
     }
   };
 
   const handleRepoSave = async () => {
     const ok = await applyRepoPathChange(repoPath);
-    if (ok) {
-      setStage("projectHub");
+    if (!ok) {
+      return;
     }
+    const cloud = cloudMirrorPath.trim();
+    if (cloud) {
+      try {
+        await setCloudMirrorPath(cloud);
+        setCloudMirrorPathInput(cloud);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "无法保存云端镜像路径。");
+        return;
+      }
+    }
+    navigateStage("projectHub");
   };
 
   const handleBrowseRepoPath = async () => {
@@ -486,7 +536,34 @@ export default function App() {
         await applyRepoPathChange(selected);
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to open directory picker.");
+      setErrorMessage(error instanceof Error ? error.message : "无法打开文件夹选择器。");
+    }
+  };
+
+  const handleBrowseCloudPath = async () => {
+    try {
+      const selected = await pickDirectory();
+      if (!selected) {
+        return;
+      }
+      await setCloudMirrorPath(selected);
+      setCloudMirrorPathInput(selected);
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "无法设置云端镜像。");
+    }
+  };
+
+  const maybeAutoPush = async (projectPath: string) => {
+    if (!autoPushOnLeave || !cloudMirrorPath.trim()) {
+      return;
+    }
+    try {
+      await persistProjectIfNeeded({ silent: true });
+      await pushProjectToCloud(projectPath, false);
+      setSaveInfo("已自动同步到云端");
+    } catch {
+      // Conflict or offline — leave quietly; user can sync manually.
     }
   };
 
@@ -502,13 +579,28 @@ export default function App() {
       setActiveProjectPath(summary.path);
       setSaveInfo(
         bundle.migrated
-          ? `Opened ${summary.name} (migrated to scene files)`
-          : `Opened ${summary.name}`,
+          ? `已打开 ${summary.name}（已迁移为分 Scene 存储）`
+          : `已打开 ${summary.name}`,
       );
       setErrorMessage(null);
-      setStage("editor");
+      navigateStage("editor");
+      void inspectAndHintCloud(summary.path);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to open project.");
+      setErrorMessage(error instanceof Error ? error.message : "打开作品失败。");
+    }
+  };
+
+  const inspectAndHintCloud = async (projectPath: string) => {
+    if (!cloudMirrorPath.trim()) {
+      return;
+    }
+    try {
+      const info = await inspectProjectSync(projectPath);
+      if (info.status === "cloudAhead" || info.status === "diverged") {
+        setSaveInfo(`同步提示：${describeSyncStatus(info.status)}（可点顶栏「同步」）`);
+      }
+    } catch {
+      // ignore
     }
   };
 
@@ -596,14 +688,14 @@ export default function App() {
       await refreshProjectList();
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to delete project.");
+      setErrorMessage(error instanceof Error ? error.message : "删除作品失败。");
     }
   };
 
   const handleCreateProject = async () => {
     const trimmedName = newProjectName.trim();
     if (!trimmedName) {
-      setErrorMessage("Project name cannot be empty.");
+      setErrorMessage("作品名称不能为空。");
       return;
     }
 
@@ -616,7 +708,7 @@ export default function App() {
       setIsCreatingProject(false);
       await handleOpenProject(summary);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to create project.");
+      setErrorMessage(error instanceof Error ? error.message : "创建作品失败。");
     }
   };
 
@@ -625,16 +717,16 @@ export default function App() {
     // If repo isn't set yet, route to setup; once saved that flow auto-advances
     // back to the hub.
     if (!repoPath.trim()) {
-      setStage("setupRepo");
+      navigateStage("setupRepo");
       return;
     }
     // Refresh in case projects were created/deleted out-of-band since bootstrap.
     try {
       await refreshProjectList();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to list projects.");
+      setErrorMessage(error instanceof Error ? error.message : "无法列出作品。");
     }
-    setStage("projectHub");
+    navigateStage("projectHub");
   };
 
   const handleImport = () => {
@@ -642,7 +734,7 @@ export default function App() {
     const { selection } = useEditorStore.getState();
     const scene = findSceneInProject(project, selection.sceneId);
     if (!scene) {
-      setErrorMessage("No scene is currently selected.");
+      setErrorMessage("当前没有选中的 Scene。");
       return;
     }
     setImportTargetScene(scene);
@@ -653,7 +745,7 @@ export default function App() {
     const { selection } = useEditorStore.getState();
     const scene = findSceneInProject(project, selection.sceneId);
     if (!scene) {
-      setErrorMessage("No scene is currently selected.");
+      setErrorMessage("当前没有选中的 Scene。");
       return;
     }
     // Snapshot the scene at open time so the dialog isn't affected if the
@@ -662,17 +754,23 @@ export default function App() {
   };
 
   const handleHub = () => {
-    if (activeProjectPath && !externalUpdate) {
-      void persistProjectIfNeeded({ silent: true }).catch((error) => {
-        setErrorMessage(error instanceof Error ? error.message : "Failed to save before leaving editor.");
-      });
+    const leavingPath = activeProjectPath;
+    if (leavingPath && !externalUpdate) {
+      void (async () => {
+        try {
+          await persistProjectIfNeeded({ silent: true });
+          await maybeAutoPush(leavingPath);
+        } catch (error) {
+          setErrorMessage(error instanceof Error ? error.message : "离开前保存失败。");
+        }
+      })();
     }
-    setStage("projectHub");
+    navigateStage("projectHub");
   };
 
   const handleSettings = () => setIsSettingsOpen(true);
 
-  const titleBarLabel = stage === "editor" ? project.title || "Untitled" : "LightScript";
+  const titleBarLabel = stage === "editor" ? project.title || "未命名作品" : "LightScript";
 
   const renderStageContent = (currentStage: AppStage) => {
     if (currentStage === "splash") {
@@ -687,7 +785,7 @@ export default function App() {
               }}
               disabled={!isHydrated}
             >
-              Project Hub
+              进入作品库
             </button>
           {errorMessage && <p className="error splash-error">{errorMessage}</p>}
         </div>
@@ -698,26 +796,32 @@ export default function App() {
       return (
         <div className="startup-screen">
           <div className="startup-card">
-            <h1>Set writing library folder</h1>
+            <h1>设置本地作品库</h1>
             <p>
-              Choose one local folder as the root for all your projects. You only
-              need to set it once.
+              选择本机磁盘上的一个文件夹作为唯一工作台。自动保存与快照都写在这里。
             </p>
             <p className="startup-hint">
-              To sync across devices, point this to a folder inside your Google
-              Drive (Drive for desktop). LightScript will detect when another
-              device syncs in changes and ask what to do.
+              请不要把作品库直接建在 Google Drive 里。需要多设备时，在下方（或之后在设置里）绑定云端镜像文件夹，再用「同步」推送。
             </p>
             <input
               value={repoPath}
               onChange={(event) => setRepoPathInput(event.target.value)}
-              placeholder="D:\\WritingLibrary"
+              placeholder="D:\\Writing\\LightScriptLibrary"
             />
-            <button type="button" onClick={handleBrowseRepoPath}>
-              Browse folder
+            <button type="button" onClick={() => void handleBrowseRepoPath()}>
+              选择本地文件夹
             </button>
-            <button type="button" onClick={handleRepoSave}>
-              Save writing library folder
+            <p className="startup-hint">云端镜像（可选）</p>
+            <input
+              value={cloudMirrorPath}
+              onChange={(event) => setCloudMirrorPathInput(event.target.value)}
+              placeholder="G:\\My Drive\\LightScriptMirror"
+            />
+            <button type="button" onClick={() => void handleBrowseCloudPath()}>
+              选择云端文件夹
+            </button>
+            <button type="button" onClick={() => void handleRepoSave()}>
+              保存并进入作品库
             </button>
             {errorMessage && <p className="error">{errorMessage}</p>}
           </div>
@@ -741,13 +845,22 @@ export default function App() {
               <button
                 type="button"
                 className="hub-topbar-button"
-                onClick={handleBrowseRepoPath}
-                title="Browse for a different writing library folder"
+                onClick={() => void handleBrowseRepoPath()}
+                title="更改本地作品库文件夹"
               >
-                Browse folder
+                本地库
+              </button>
+              <button
+                type="button"
+                className="hub-topbar-button"
+                onClick={() => void handleBrowseCloudPath()}
+                title="绑定或更换云端镜像文件夹"
+              >
+                云端
               </button>
               <div className="hub-topbar-path" title={repoPath}>
-                {repoPath || "No repository selected"}
+                {repoPath || "未选择本地作品库"}
+                {cloudMirrorPath ? ` · 云：${cloudMirrorPath}` : " · 未绑云端"}
               </div>
             </div>
 
@@ -759,7 +872,7 @@ export default function App() {
                       ref={newProjectInputRef}
                       className="hub-tile-new-input"
                       value={newProjectName}
-                      placeholder="Project name"
+                      placeholder="作品名称"
                       onChange={(event) => setNewProjectName(event.target.value)}
                       onBlur={() => {
                         if (newProjectName.trim()) {
@@ -784,10 +897,10 @@ export default function App() {
                     type="button"
                     className="hub-tile hub-tile--new"
                     onClick={startCreateTile}
-                    title="Create a new project"
+                    title="创建新作品"
                   >
                     <span className="hub-tile-new-plus" aria-hidden="true">+</span>
-                    <span className="hub-tile-new-label">New Project</span>
+                    <span className="hub-tile-new-label">新建作品</span>
                   </button>
                 )}
                 {projectList.map((entry) => (
@@ -806,8 +919,8 @@ export default function App() {
                     <button
                       type="button"
                       className="hub-tile-delete"
-                      aria-label={`Delete ${entry.name}`}
-                      title={`Delete ${entry.name}`}
+                      aria-label={`删除 ${entry.name}`}
+                      title={`删除 ${entry.name}`}
                       onClick={(event) => {
                         event.stopPropagation();
                         setPendingDelete(entry);
@@ -821,7 +934,7 @@ export default function App() {
 
               {projectList.length === 0 && !isCreatingProject && (
                 <p className="hub-empty-hint">
-                  No project yet. Click + above to create your first one.
+                  还没有作品。点击上方 + 创建第一部。
                 </p>
               )}
             </div>
@@ -865,6 +978,38 @@ export default function App() {
           <SettingsDialog
             onClose={() => setIsSettingsOpen(false)}
             onUpdateAvailable={(update) => setPendingUpdate(update)}
+            onLibraryPathsChanged={async () => {
+              const [repo, cloud, prefs] = await Promise.all([
+                getRepoPath(),
+                getCloudMirrorPath(),
+                getSyncPrefs(),
+              ]);
+              setRepoPathInput(repo ?? "");
+              setCloudMirrorPathInput(cloud ?? "");
+              setAutoPushOnLeave(prefs.autoPushOnLeave);
+              if (repo) {
+                await refreshProjectList();
+              }
+            }}
+          />
+        )}
+        {isSyncOpen && activeProjectPath && (
+          <SyncDialog
+            projectPath={activeProjectPath}
+            projectName={project.title || "未命名作品"}
+            onClose={() => setIsSyncOpen(false)}
+            onPulled={async () => {
+              const bundle = await loadProjectBundle(activeProjectPath);
+              assertProjectInvariant(bundle.project);
+              hydrateProject(bundle.project, bundle.lastOpened);
+              captureSavedSnapshot(bundle.fileSnapshot, bundle.fileMetas);
+              snapshotBookRef.current = {};
+            }}
+            onMessage={(message) => {
+              setErrorMessage(null);
+              setSaveInfo(message);
+            }}
+            onError={(message) => setErrorMessage(message)}
           />
         )}
         {pendingUpdate && (
@@ -887,6 +1032,10 @@ export default function App() {
             ? [
                 { label: "导入", onClick: handleImport },
                 { label: "导出", onClick: handleExport },
+                {
+                  label: "同步",
+                  onClick: () => setIsSyncOpen(true),
+                },
                 {
                   label: "备份与恢复",
                   onClick: () => setIsRecoveryOpen(true),
@@ -962,10 +1111,10 @@ export default function App() {
         )}
         {pendingDelete && (
           <ModalDialog
-            title="Delete project"
-            message={`“${pendingDelete.name}” and its folder on disk will be permanently removed. This cannot be undone.`}
-            confirmText="Delete"
-            cancelText="Cancel"
+            title="删除作品"
+            message={`「${pendingDelete.name}」及其磁盘上的文件夹将被永久删除，无法撤销。`}
+            confirmText="删除"
+            cancelText="取消"
             variant="danger"
             onConfirm={() => {
               void handleConfirmDelete();

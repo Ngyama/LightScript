@@ -135,7 +135,7 @@ export function SceneOrbitNavigator() {
   }, [editing]);
 
   const currentScript = findCurrentScript(project, selection);
-  const projectTitle = project.title?.trim() || "Untitled";
+  const projectTitle = project.title?.trim() || "未命名作品";
 
   const trackRef = useRef<HTMLDivElement>(null);
 
@@ -253,7 +253,7 @@ export function SceneOrbitNavigator() {
     closeMenu();
     const ok = deleteScene(scriptId, sceneId);
     if (!ok) {
-      setNoticeMessage("Each script needs to keep at least one scene.");
+      setNoticeMessage("每个 Script 至少需要保留一个 Scene。");
     }
   };
 
@@ -261,7 +261,7 @@ export function SceneOrbitNavigator() {
     closeMenu();
     const ok = deleteScript(scriptId);
     if (!ok) {
-      setNoticeMessage("The project needs to keep at least one script.");
+      setNoticeMessage("作品至少需要保留一个 Script。");
     }
   };
 
@@ -324,8 +324,8 @@ export function SceneOrbitNavigator() {
                 <button
                   type="button"
                   className="scene-orbit-script-more"
-                  aria-label="Script actions"
-                  title="Script actions"
+                  aria-label="Script 操作"
+                  title="Script 操作"
                   onClick={(event) => openScriptMenu(event, currentScript.id)}
                   onContextMenu={(event) => openScriptMenu(event, currentScript.id)}
                 >
@@ -390,8 +390,8 @@ export function SceneOrbitNavigator() {
                     <button
                       type="button"
                       className="scene-orbit-item-more"
-                      aria-label="Script actions"
-                      title="Script actions"
+                      aria-label="Script 操作"
+                      title="Script 操作"
                       onClick={(event) => openScriptMenu(event, item.scriptId)}
                       onContextMenu={(event) => openScriptMenu(event, item.scriptId)}
                     >
@@ -437,8 +437,8 @@ export function SceneOrbitNavigator() {
                   <button
                     type="button"
                     className="scene-orbit-item-more"
-                    aria-label="Scene actions"
-                    title="Scene actions"
+                    aria-label="Scene 操作"
+                    title="Scene 操作"
                     onClick={(event) =>
                       openSceneMenu(event, item.scriptId, item.sceneId)
                     }
@@ -498,7 +498,7 @@ export function SceneOrbitNavigator() {
                         startEditScene(menuTarget.scene.id, menuTarget.scene.title)
                       }
                     >
-                      Rename Scene
+                      重命名 Scene
                     </button>
                   </li>
                   <li>
@@ -509,7 +509,7 @@ export function SceneOrbitNavigator() {
                         handleDeleteScene(menuTarget.script.id, menuTarget.scene.id)
                       }
                     >
-                      Delete Scene
+                      删除 Scene
                     </button>
                   </li>
                 </>
@@ -525,7 +525,7 @@ export function SceneOrbitNavigator() {
                         )
                       }
                     >
-                      Rename Script
+                      重命名 Script
                     </button>
                   </li>
                   <li>
@@ -533,7 +533,7 @@ export function SceneOrbitNavigator() {
                       type="button"
                       onClick={() => handleAddSceneToScript(menuTarget.script.id)}
                     >
-                      New Scene in Script
+                      在此 Script 下新建 Scene
                     </button>
                   </li>
                   <li>
@@ -542,7 +542,7 @@ export function SceneOrbitNavigator() {
                       className="is-danger"
                       onClick={() => handleDeleteScript(menuTarget.script.id)}
                     >
-                      Delete Script
+                      删除 Script
                     </button>
                   </li>
                 </>
@@ -554,9 +554,9 @@ export function SceneOrbitNavigator() {
       {noticeMessage &&
         createPortal(
           <ModalDialog
-            title="Can’t delete"
+            title="无法删除"
             message={noticeMessage}
-            confirmText="Got it"
+            confirmText="知道了"
             onConfirm={() => setNoticeMessage(null)}
             onClose={() => setNoticeMessage(null)}
           />,
